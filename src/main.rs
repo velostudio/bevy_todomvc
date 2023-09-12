@@ -18,3 +18,7 @@ struct Model;
 /// Marker component to indicate that this entity is part of the View
 #[derive(Component)]
 struct View;
+
+type ModelOnly = (With<Model>, Without<View>);
+
+type ViewOnly = (Without<Model>, With<View>);
