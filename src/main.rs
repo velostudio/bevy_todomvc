@@ -1,17 +1,18 @@
-//! handle_mouse_input: Input<MouseButton> -> Event<TodoAction>
-//! -> update_todo_model: Event<TodoAction> -> (Todo, Model)
-//! ->-> display_todos: (Todo, Model) -> (Text2dBundle, View)
-//! ->-> update_displayed_todos: (Todo, Model) -> (Text2dBundle, View)
+//! handle_mouse_input: Input<MouseButton> -> Event<ModelTodoAction>
+//! -> update_todo_model: Event<ModelTodoAction> -> SpawnOrMutate(Todo, Model)
+//! ->-> display_todos: (Todo, Model) -> Spawn((Text2dBundle, View))
+//! ->-> update_displayed_todos: (Todo, Model) -> Mutate((Text2dBundle, View))
 
 use bevy::prelude::*;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_event::<TodoAction>()
+        .add_event::<ModelTodoAction>()
         .add_systems(Startup, setup)
+        .add_systems(Startup, setup_ui)
         .add_systems(PreUpdate, handle_typing)
-        .add_systems(PreUpdate, handle_delete_todo_click)
+        .add_systems(PreUpdate, handle_interaction_for_delete)
         .add_systems(PreUpdate, handle_enter)
         .add_systems(PreUpdate, handle_check_todo_click)
         .add_systems(PreUpdate, handle_todo_text_click)
@@ -49,6 +50,9 @@ struct ActiveTyping;
 
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
+}
+
+fn setup_ui(mut commands: Commands) {
     let main = commands
         .spawn(NodeBundle {
             style: Style {
@@ -61,7 +65,7 @@ fn setup(mut commands: Commands) {
             ..default()
         })
         .id();
-    let todo_input_btn = commands
+    let todo_input = commands
         .spawn((
             ButtonBundle {
                 border_color: Color::GREEN.into(),
@@ -81,7 +85,7 @@ fn setup(mut commands: Commands) {
             TodoInput,
         ))
         .id();
-    let todo_input_txt = commands
+    let todo_input_text = commands
         .spawn((
             TextBundle {
                 text: Text::from_section("", default()),
@@ -103,24 +107,29 @@ fn setup(mut commands: Commands) {
             TodoList,
         ))
         .id();
-    commands.entity(todo_input_btn).add_child(todo_input_txt);
-    commands.entity(main).add_child(todo_input_btn);
+
+    // main
+    // - todo_input
+    //   - todo_input_text
+    // - todo_list
+    commands.entity(main).add_child(todo_input);
+    commands.entity(todo_input).add_child(todo_input_text);
     commands.entity(main).add_child(todo_list);
 }
 
-fn handle_delete_todo_click(
+fn handle_interaction_for_delete(
     mut commands: Commands,
-    mut actions: EventWriter<TodoAction>,
+    mut actions: EventWriter<ModelTodoAction>,
     mut delete_interaction_q: Query<
         (&Interaction, &View),
         (Changed<Interaction>, With<TodoDeleteView>),
     >,
-    mut todo_text_q: Query<(Entity, &ActiveTyping), With<TodoTextView>>,
+    mut todo_text_q: Query<Entity, (With<TodoTextView>, With<ActiveTyping>)>,
 ) {
     for (interaction, view) in delete_interaction_q.iter_mut() {
         if *interaction == Interaction::Pressed {
-            actions.send(TodoAction::Delete(view.0));
-            for (entity, _) in todo_text_q.iter_mut() {
+            actions.send(ModelTodoAction::Delete(view.0));
+            for entity in todo_text_q.iter_mut() {
                 commands.entity(entity).remove::<ActiveTyping>();
             }
         }
@@ -133,7 +142,7 @@ fn handle_todo_text_click(
         (&Interaction, Entity),
         (Changed<Interaction>, With<TodoTextView>),
     >,
-    mut todo_text_q: Query<(Entity, &Parent, &Text), With<TodoTextView>>,
+    mut todo_text_q: Query<(Entity, &Parent), (With<Text>, With<TodoTextView>)>,
     mut active_todo_input_q: Query<(Entity, &ActiveTyping), With<TodoInput>>,
 ) {
     for (interaction, clicked_entity) in check_interaction_q.iter_mut() {
@@ -141,7 +150,7 @@ fn handle_todo_text_click(
             for (entity, _) in active_todo_input_q.iter_mut() {
                 commands.entity(entity).remove::<ActiveTyping>();
             }
-            for (entity, parent, _) in todo_text_q.iter_mut() {
+            for (entity, parent) in todo_text_q.iter_mut() {
                 if parent.get() == clicked_entity {
                     commands.entity(entity).insert(ActiveTyping);
                 } else {
@@ -154,8 +163,8 @@ fn handle_todo_text_click(
 
 fn handle_check_todo_click(
     mut commands: Commands,
-    mut actions: EventWriter<TodoAction>,
-    model: Query<&TodoChecked, ModelOnly>,
+    mut actions: EventWriter<ModelTodoAction>,
+    model: Query<&ModelTodoChecked, ModelOnly>,
     mut check_interaction_q: Query<
         (&Interaction, &View),
         (Changed<Interaction>, With<TodoCheckView>),
@@ -164,7 +173,7 @@ fn handle_check_todo_click(
 ) {
     for (interaction, view) in check_interaction_q.iter_mut() {
         if *interaction == Interaction::Pressed {
-            actions.send(TodoAction::UpdateChecked(
+            actions.send(ModelTodoAction::UpdateChecked(
                 view.0,
                 !model.get(view.0).unwrap().0,
             ));
@@ -177,7 +186,7 @@ fn handle_check_todo_click(
 
 fn handle_enter(
     mut commands: Commands,
-    mut actions: EventWriter<TodoAction>,
+    mut actions: EventWriter<ModelTodoAction>,
     mut active_todo_input_q: Query<
         (&mut Text, &ActiveTyping),
         (With<TodoInput>, Without<TodoTextView>),
@@ -195,7 +204,7 @@ fn handle_enter(
 ) {
     if keys.just_pressed(KeyCode::Return) {
         for (mut todo_input_text, _) in active_todo_input_q.iter_mut() {
-            actions.send(TodoAction::Create(
+            actions.send(ModelTodoAction::Create(
                 todo_input_text.sections[0].value.clone(),
             ));
             todo_input_text.sections[0].value = "".to_string();
@@ -209,27 +218,37 @@ fn handle_enter(
     }
 }
 
+/// TODO: break this up into three systems:
+///
+/// 1. EventReader<ReceivedCharacter> -> Event<ModelInputAction>
+/// 2. Event<ModelInputAction> -> Update(ModelInputText)
+/// 3. ModelInputText -> Update(View)
+///
+/// The view (Text) should update automatically from updating the model thanks to system 3
+///
+/// UpdateText should send the whole string as well, not just the new character
+///
+/// The question is how to express this at creation (setup_ui)
+///
+/// We want the equivalent of JS `input.addEventListener('oninput', (e) => { model.value = e.target.value })`
 fn handle_typing(
     mut evr_char: EventReader<ReceivedCharacter>,
     mut active_todo_input_q: Query<
         (&mut Text, &ActiveTyping),
         (With<TodoInput>, Without<TodoTextView>),
     >,
-    mut actions: EventWriter<TodoAction>,
+    mut actions: EventWriter<ModelTodoAction>,
     mut active_todo_text_q: Query<(&View, &ActiveTyping), With<TodoTextView>>,
 ) {
     for ev in evr_char.iter() {
         if !ev.char.is_control() {
             // TODO: MVC is not used for todo input, but for todo list it is, should it be improved?
             for (mut todo_input_text, _) in active_todo_input_q.iter_mut() {
-                todo_input_text.sections[0].value = format!(
-                    "{}{}",
-                    todo_input_text.sections[0].value,
-                    ev.char.to_string(),
-                );
+                todo_input_text.sections[0].value =
+                    format!("{}{}", todo_input_text.sections[0].value, ev.char,);
             }
             for (view, _) in active_todo_text_q.iter_mut() {
-                actions.send(TodoAction::UpdateText(view.0, ev.char.to_string()));
+                actions.send(ModelTodoAction::UpdateText(view.0, ev.char.to_string()));
             }
         }
     }
@@ -238,34 +257,46 @@ fn handle_typing(
 /// Flush after this
 fn update_todo_model(
     mut commands: Commands,
-    mut actions: EventReader<TodoAction>,
-    mut todo_text: Query<&mut TodoText, ModelOnly>,
-    mut todo_checked: Query<&mut TodoChecked, ModelOnly>,
+    mut actions: EventReader<ModelTodoAction>,
+    mut todo_text: Query<&mut ModelTodoText, ModelOnly>,
+    mut todo_checked: Query<&mut ModelTodoChecked, ModelOnly>,
 ) {
     for action in actions.iter() {
         match action {
-            TodoAction::Create(text) => {
-                commands.spawn((TodoText(text.clone()), TodoChecked(false), Model));
+            ModelTodoAction::Create(text) => {
+                commands.spawn((ModelTodoText(text.clone()), ModelTodoChecked(false), Model));
             }
-            TodoAction::Delete(e) => {
+            ModelTodoAction::Delete(e) => {
                 commands.entity(*e).despawn_recursive();
             }
-            TodoAction::UpdateChecked(e, checked) => {
+            ModelTodoAction::UpdateChecked(e, checked) => {
                 todo_checked.get_mut(*e).unwrap().0 = *checked;
             }
-            TodoAction::UpdateText(e, text) => {
+            ModelTodoAction::UpdateText(e, text) => {
                 todo_text.get_mut(*e).unwrap().0 = text.clone();
             }
         }
     }
 }
 
+/// Helper function
+fn display_checked(checked: &ModelTodoChecked) -> &'static str {
+    if checked.0 {
+        "[x]"
+    } else {
+        "[ ]"
+    }
+}
+
 fn display_todos(
     mut commands: Commands,
-    todos: Query<(&TodoText, ModelEntity), (Added<TodoText>, ModelOnly)>,
+    todos: Query<
+        (ModelEntity, &ModelTodoText, &ModelTodoChecked),
+        (Added<ModelTodoText>, Added<ModelTodoChecked>, ModelOnly),
+    >,
     todo_list_q: Query<Entity, With<TodoList>>,
 ) {
-    for (todo, model_entity) in todos.iter() {
+    for (model_entity, todo, checked) in todos.iter() {
         let todo_list = todo_list_q.single();
         let todo_item = commands
             .spawn((
@@ -300,10 +331,11 @@ fn display_todos(
         let todo_check_txt = commands
             .spawn((
                 TextBundle {
-                    text: Text::from_section("o", default()),
+                    text: Text::from_section(display_checked(checked), default()),
                     ..default()
                 },
                 View(model_entity),
+                TodoCheckView,
             ))
             .id();
         commands.entity(todo_check_btn).add_child(todo_check_txt);
@@ -365,36 +397,48 @@ fn display_todos(
                 View(model_entity),
             ))
             .id();
-        commands.entity(todo_btn).add_child(todo_txt);
-        commands.entity(todo_item).add_child(todo_check_btn);
-        commands.entity(todo_delete_btn).add_child(todo_delete_txt);
-        commands.entity(todo_item).add_child(todo_btn);
-        commands.entity(todo_item).add_child(todo_delete_btn);
+
+        // todo_list
+        // - [todo_item]
+        //   - todo_check_btn
+        //   - todo_btn
+        //      - todo_txt
+        //   - todo_delete_btn
+        //      - todo_delete_txt
         commands.entity(todo_list).add_child(todo_item);
+        commands.entity(todo_item).add_child(todo_check_btn);
+        commands.entity(todo_item).add_child(todo_btn);
+        commands.entity(todo_btn).add_child(todo_txt);
+        commands.entity(todo_item).add_child(todo_delete_btn);
+        commands.entity(todo_delete_btn).add_child(todo_delete_txt);
     }
 }
 
 fn update_displayed_todos_text(
+    todos_text: Query<&ModelTodoText, (Changed<ModelTodoText>, ModelOnly)>,
     mut views: Query<(&mut Text, &View, &TodoTextView), ViewOnly>,
-    todos_text: Query<&TodoText, (Changed<TodoText>, ModelOnly)>,
 ) {
     for (mut text, view, _) in views.iter_mut() {
         if let Ok(todo) = todos_text.get(view.0) {
-            text.sections[0].value = format!("{}{}", text.sections[0].value, todo.0.clone());
+            text.sections[0].value = todo.0.clone();
         }
     }
 }
 
+/// these updates are push-based but we kinda want pull-based from an authoring perspective
+/// so that it's easier to locate a specific entity
+/// this should be equivalent to...
+/// We need to store a reference to a model entity on every dependent view entity
+/// We also need to store a reference to a model entity on every view entity that sends an action which is not ideal
 fn update_displayed_todos_checked(
-    mut views: Query<(&mut Text, &View), ViewOnly>,
-    todos_checked: Query<&TodoChecked, (Changed<TodoChecked>, ModelOnly)>,
+    model_checked: Query<&ModelTodoChecked, (Changed<ModelTodoChecked>, ModelOnly)>,
+    mut views: Query<(&mut Text, &View, Option<&TodoCheckView>), ViewOnly>,
 ) {
-    for (mut text, view) in views.iter_mut() {
-        if let Ok(todo) = todos_checked.get(view.0) {
-            if todo.0 {
-                text.sections[0].style.color = Color::GRAY;
-            } else {
-                text.sections[0].style.color = Color::WHITE;
+    for (mut text, view, maybe_checkbox) in views.iter_mut() {
+        if let Ok(checked) = model_checked.get(view.0) {
+            text.sections[0].style.color = if checked.0 { Color::GRAY } else { Color::WHITE };
+            if maybe_checkbox.is_some() {
+                text.sections[0].value = display_checked(checked).to_string();
             }
         }
     }
@@ -402,24 +446,18 @@ fn update_displayed_todos_checked(
 
 fn remove_displayed_todos(
     mut commands: Commands,
-    views: Query<(Entity, &View, &TodoRootView), ViewOnly>,
-    mut removed: RemovedComponents<TodoChecked>,
+    views: Query<(Entity, &View), (ViewOnly, With<TodoRootView>)>,
+    mut removed: RemovedComponents<Model>,
 ) {
     for entity in removed.iter() {
         // TODO: O(n^2) is too expensive here, should we have 2-way-relationship?
-        for (view_entity, view, _) in views.iter() {
+        for (view_entity, view) in views.iter() {
             if view.0 == entity {
                 commands.entity(view_entity).despawn_recursive();
             }
         }
     }
 }
-
-#[derive(Component)]
-struct TodoText(String);
-
-#[derive(Component)]
-struct TodoChecked(bool);
 
 /// Marker component to indicate that this entity is part of the Model
 ///
@@ -439,10 +477,36 @@ type ViewOnly = (Without<Model>, With<View>);
 
 type ModelEntity = Entity;
 
+/// Combined with `ModelTodoText` and `ModelTodoChecked`,
+/// this is functionally equivalent to
+/// ```rs
+/// struct Todo {
+///     text: String,
+///     checked: bool,
+/// }
+///
+/// struct Todos(Vec<Todo>);
+///
+/// impl Todos {
+///     fn create(&mut self, text: String);
+///     fn delete(&mut self, idx: usize);
+///     fn update_checked(&mut self, idx: usize, checked: bool);
+///     fn update_text(&mut self, idx: usize, text: String);
+/// }
+/// ```
+///
+/// Components are a stand-in for properties.
+/// Events are a stand-in for methods.
 #[derive(Event)]
-enum TodoAction {
+enum ModelTodoAction {
     Create(String),
     Delete(ModelEntity),
-    UpdateChecked(ModelEntity, bool),
     UpdateText(ModelEntity, String),
+    UpdateChecked(ModelEntity, bool),
 }
+
+#[derive(Component)]
+struct ModelTodoText(String);
+
+#[derive(Component)]
+struct ModelTodoChecked(bool);
