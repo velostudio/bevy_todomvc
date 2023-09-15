@@ -56,9 +56,9 @@ fn setup(mut commands: Commands) {
                 width: Val::Percent(100.),
                 align_items: AlignItems::Center,
                 flex_direction: FlexDirection::Column,
-                ..Default::default()
+                ..default()
             },
-            ..Default::default()
+            ..default()
         })
         .id();
     let todo_input_btn = commands
@@ -73,10 +73,10 @@ fn setup(mut commands: Commands) {
                     width: Val::Px(200.),
                     height: Val::Px(40.),
                     border: UiRect::all(Val::Px(4.)),
-                    ..Default::default()
+                    ..default()
                 },
                 background_color: Color::NONE.into(),
-                ..Default::default()
+                ..default()
             },
             TodoInput,
         ))
@@ -96,9 +96,9 @@ fn setup(mut commands: Commands) {
             NodeBundle {
                 style: Style {
                     flex_direction: FlexDirection::Column,
-                    ..Default::default()
+                    ..default()
                 },
-                ..Default::default()
+                ..default()
             },
             TodoList,
         ))
@@ -272,9 +272,9 @@ fn display_todos(
                 NodeBundle {
                     style: Style {
                         margin: UiRect::all(Val::Px(5.)),
-                        ..Default::default()
+                        ..default()
                     },
-                    ..Default::default()
+                    ..default()
                 },
                 View(model_entity),
                 TodoRootView,
@@ -288,10 +288,10 @@ fn display_todos(
                         height: Val::Px(40.),
                         justify_content: JustifyContent::Center,
                         overflow: Overflow::clip(),
-                        ..Default::default()
+                        ..default()
                     },
                     background_color: Color::NONE.into(),
-                    ..Default::default()
+                    ..default()
                 },
                 View(model_entity),
                 TodoCheckView,
@@ -314,10 +314,10 @@ fn display_todos(
                         width: Val::Px(200.),
                         height: Val::Px(40.),
                         overflow: Overflow::clip(),
-                        ..Default::default()
+                        ..default()
                     },
                     background_color: Color::NONE.into(),
-                    ..Default::default()
+                    ..default()
                 },
                 View(model_entity),
                 TodoTextView,
@@ -344,13 +344,13 @@ fn display_todos(
                         margin: UiRect {
                             left: Val::Px(10.),
                             right: Val::Px(10.),
-                            ..Default::default()
+                            ..default()
                         },
                         overflow: Overflow::clip(),
-                        ..Default::default()
+                        ..default()
                     },
                     background_color: Color::NONE.into(),
-                    ..Default::default()
+                    ..default()
                 },
                 View(model_entity),
                 TodoDeleteView,
