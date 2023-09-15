@@ -9,6 +9,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_event::<ModelTodoAction>()
+        .add_event::<ModelInputAction>()
         .add_event::<SetFocus>()
         .init_resource::<Focus>()
         .add_systems(Startup, setup)
@@ -24,11 +25,17 @@ fn main() {
         .add_systems(PreUpdate, handle_text_input_click.before(handle_focus))
         .add_systems(PreUpdate, handle_focus)
         .add_systems(Update, update_todo_model)
+        .add_systems(Update, update_input_model)
         .add_systems(Update, display_todos.after(update_todo_model))
+        .add_systems(Update, display_text_input.after(update_input_model))
         .add_systems(Update, update_displayed_todos_text.after(update_todo_model))
         .add_systems(
             Update,
             update_displayed_todos_checked.after(update_todo_model),
+        )
+        .add_systems(
+            Update,
+            update_displayed_input_text.after(update_input_model),
         )
         .add_systems(PostUpdate, remove_displayed_todos)
         .run();
@@ -39,6 +46,9 @@ pub struct Focus(pub Option<Entity>);
 
 #[derive(Event)]
 struct SetFocus(Option<Entity>);
+
+#[derive(Component)]
+struct TodoInputContainer;
 
 #[derive(Component)]
 struct TodoList;
@@ -62,7 +72,7 @@ fn setup(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
 }
 
-fn setup_ui(mut commands: Commands, mut set_focus: EventWriter<SetFocus>) {
+fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAction>) {
     let main = commands
         .spawn(NodeBundle {
             style: Style {
@@ -75,34 +85,8 @@ fn setup_ui(mut commands: Commands, mut set_focus: EventWriter<SetFocus>) {
             ..default()
         })
         .id();
-    let todo_input = commands
-        .spawn((
-            ButtonBundle {
-                border_color: Color::GREEN.into(),
-                style: Style {
-                    justify_content: JustifyContent::Center,
-                    overflow: Overflow::clip(),
-                    align_items: AlignItems::Center,
-                    margin: UiRect::all(Val::Px(10.)),
-                    width: Val::Px(200.),
-                    height: Val::Px(40.),
-                    border: UiRect::all(Val::Px(4.)),
-                    ..default()
-                },
-                background_color: Color::NONE.into(),
-                ..default()
-            },
-            TodoInput,
-        ))
-        .id();
-    let todo_input_text = commands
-        .spawn((
-            TextBundle {
-                text: Text::from_section("", default()),
-                ..default()
-            },
-            TodoInput,
-        ))
+    let todo_input_container = commands
+        .spawn((NodeBundle::default(), TodoInputContainer))
         .id();
     let todo_list = commands
         .spawn((
@@ -118,14 +102,12 @@ fn setup_ui(mut commands: Commands, mut set_focus: EventWriter<SetFocus>) {
         .id();
 
     // main
-    // - todo_input
-    //   - todo_input_text
+    // - todo_input_container
     // - todo_list
-    commands.entity(main).add_child(todo_input);
-    commands.entity(todo_input).add_child(todo_input_text);
+    commands.entity(main).add_child(todo_input_container);
     commands.entity(main).add_child(todo_list);
 
-    set_focus.send(SetFocus(Some(todo_input_text)));
+    input_actions.send(ModelInputAction::Create("".to_string()));
 }
 
 fn handle_interaction_for_delete(
@@ -222,24 +204,15 @@ fn handle_focus(mut set_focus_events: EventReader<SetFocus>, mut focus: ResMut<F
     }
 }
 
-/// TODO: break this up into three systems:
-///
-/// 1. EventReader<ReceivedCharacter> -> Event<ModelInputAction>
-/// 2. Event<ModelInputAction> -> Update(ModelInputText)
-/// 3. ModelInputText -> Update(View)
-///
-/// The view (Text) should update automatically from updating the model thanks to system 3
-///
-/// UpdateText should send the whole string as well, not just the new character
-///
 /// The question is how to express this at creation (setup_ui)
 ///
 /// We want the equivalent of JS `input.addEventListener('oninput', (e) => { model.value = e.target.value })`
 fn handle_typing(
     mut evr_char: EventReader<ReceivedCharacter>,
-    mut todo_input_q: Query<&mut Text, (With<TodoInput>, Without<TodoTextView>)>,
-    mut actions: EventWriter<ModelTodoAction>,
-    todo_text_q: Query<&View, With<TodoTextView>>,
+    mut todo_actions: EventWriter<ModelTodoAction>,
+    mut input_actions: EventWriter<ModelInputAction>,
+    mut todo_input_q: Query<(&Text, &View), (With<TodoInput>, Without<TodoTextView>)>,
+    todo_text_q: Query<(&Text, &View), With<TodoTextView>>,
     focus: Res<Focus>,
 ) {
     if focus.is_none() {
@@ -247,14 +220,18 @@ fn handle_typing(
     }
     for ev in evr_char.iter() {
         if !ev.char.is_control() {
-            // TODO: MVC is not used for todo input, but for todo list it is, should it be improved?
-            if let Ok(mut todo_input_text) = todo_input_q.get_mut(focus.unwrap()) {
-                todo_input_text.sections[0].value =
-                    format!("{}{}", todo_input_text.sections[0].value, ev.char,);
+            if let Ok((text, view)) = todo_input_q.get_mut(focus.unwrap()) {
+                input_actions.send(ModelInputAction::UpdateText(
+                    view.0,
+                    format!("{}{}", text.sections[0].value, ev.char.to_string()),
+                ));
             }
 
-            if let Ok(view) = todo_text_q.get(focus.unwrap()) {
-                actions.send(ModelTodoAction::UpdateText(view.0, ev.char.to_string()));
+            if let Ok((text, view)) = todo_text_q.get(focus.unwrap()) {
+                todo_actions.send(ModelTodoAction::UpdateText(
+                    view.0,
+                    format!("{}{}", text.sections[0].value, ev.char.to_string()),
+                ));
             }
         }
     }
@@ -282,6 +259,74 @@ fn update_todo_model(
                 todo_text.get_mut(*e).unwrap().0 = text.clone();
             }
         }
+    }
+}
+
+fn update_input_model(
+    mut commands: Commands,
+    mut actions: EventReader<ModelInputAction>,
+    mut input_text: Query<&mut ModelInputText, ModelOnly>,
+) {
+    for action in actions.iter() {
+        match action {
+            ModelInputAction::Create(text) => {
+                commands.spawn((ModelInputText(text.clone()), Model));
+            }
+            ModelInputAction::UpdateText(e, text) => {
+                input_text.get_mut(*e).unwrap().0 = text.clone();
+            }
+        }
+    }
+}
+
+fn display_text_input(
+    mut commands: Commands,
+    inputs: Query<(ModelEntity, &ModelInputText), (Added<ModelInputText>, ModelOnly)>,
+    todo_input_container: Query<Entity, With<TodoInputContainer>>,
+    mut set_focus: EventWriter<SetFocus>,
+) {
+    for (model_entity, input) in inputs.iter() {
+        let todo_input = commands
+            .spawn((
+                ButtonBundle {
+                    border_color: Color::GREEN.into(),
+                    style: Style {
+                        justify_content: JustifyContent::Center,
+                        overflow: Overflow::clip(),
+                        align_items: AlignItems::Center,
+                        margin: UiRect::all(Val::Px(10.)),
+                        width: Val::Px(200.),
+                        height: Val::Px(40.),
+                        border: UiRect::all(Val::Px(4.)),
+                        ..default()
+                    },
+                    background_color: Color::NONE.into(),
+                    ..default()
+                },
+                View(model_entity),
+                TodoInput,
+            ))
+            .id();
+        let todo_input_text = commands
+            .spawn((
+                TextBundle {
+                    text: Text::from_section(input.0.clone(), default()),
+                    ..default()
+                },
+                View(model_entity),
+                TodoInput,
+            ))
+            .id();
+
+        // - todo_input_container
+        //   - todo_input
+        //      - todo_input_text
+        commands
+            .entity(todo_input_container.single())
+            .add_child(todo_input);
+        commands.entity(todo_input).add_child(todo_input_text);
+
+        set_focus.send(SetFocus(Some(todo_input_text)));
     }
 }
 
@@ -426,7 +471,7 @@ fn update_displayed_todos_text(
 ) {
     for (mut text, view, _) in views.iter_mut() {
         if let Ok(todo) = todos_text.get(view.0) {
-            text.sections[0].value = format!("{}{}", text.sections[0].value, todo.0.clone());
+            text.sections[0].value = todo.0.clone();
         }
     }
 }
@@ -446,6 +491,17 @@ fn update_displayed_todos_checked(
             if maybe_checkbox.is_some() {
                 text.sections[0].value = display_checked(checked).to_string();
             }
+        }
+    }
+}
+
+fn update_displayed_input_text(
+    input_text: Query<&ModelInputText, (Changed<ModelInputText>, ModelOnly)>,
+    mut views: Query<(&mut Text, &View, &TodoInput), ViewOnly>,
+) {
+    for (mut text, view, _) in views.iter_mut() {
+        if let Ok(todo) = input_text.get(view.0) {
+            text.sections[0].value = todo.0.clone();
         }
     }
 }
@@ -516,3 +572,12 @@ struct ModelTodoText(String);
 
 #[derive(Component)]
 struct ModelTodoChecked(bool);
+
+#[derive(Event)]
+enum ModelInputAction {
+    Create(String),
+    UpdateText(ModelEntity, String),
+}
+
+#[derive(Component)]
+struct ModelInputText(String);
