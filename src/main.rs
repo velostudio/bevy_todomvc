@@ -9,13 +9,20 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_event::<ModelTodoAction>()
+        .add_event::<SetFocus>()
+        .init_resource::<Focus>()
         .add_systems(Startup, setup)
         .add_systems(Startup, setup_ui)
-        .add_systems(PreUpdate, handle_typing)
-        .add_systems(PreUpdate, handle_interaction_for_delete)
-        .add_systems(PreUpdate, handle_enter)
-        .add_systems(PreUpdate, handle_check_todo_click)
-        .add_systems(PreUpdate, handle_todo_text_click)
+        .add_systems(PreUpdate, handle_typing.before(handle_focus))
+        .add_systems(
+            PreUpdate,
+            handle_interaction_for_delete.before(handle_focus),
+        )
+        .add_systems(PreUpdate, handle_enter.before(handle_focus))
+        .add_systems(PreUpdate, handle_check_todo_click.before(handle_focus))
+        .add_systems(PreUpdate, handle_todo_text_click.before(handle_focus))
+        .add_systems(PreUpdate, handle_text_input_click.before(handle_focus))
+        .add_systems(PreUpdate, handle_focus)
         .add_systems(Update, update_todo_model)
         .add_systems(Update, display_todos.after(update_todo_model))
         .add_systems(Update, update_displayed_todos_text.after(update_todo_model))
@@ -26,6 +33,12 @@ fn main() {
         .add_systems(PostUpdate, remove_displayed_todos)
         .run();
 }
+
+#[derive(Resource, Default, Deref, DerefMut)]
+pub struct Focus(pub Option<Entity>);
+
+#[derive(Event)]
+struct SetFocus(Option<Entity>);
 
 #[derive(Component)]
 struct TodoList;
@@ -45,14 +58,11 @@ struct TodoCheckView;
 #[derive(Component)]
 struct TodoDeleteView;
 
-#[derive(Component)]
-struct ActiveTyping;
-
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
 }
 
-fn setup_ui(mut commands: Commands) {
+fn setup_ui(mut commands: Commands, mut set_focus: EventWriter<SetFocus>) {
     let main = commands
         .spawn(NodeBundle {
             style: Style {
@@ -91,7 +101,6 @@ fn setup_ui(mut commands: Commands) {
                 text: Text::from_section("", default()),
                 ..default()
             },
-            ActiveTyping,
             TodoInput,
         ))
         .id();
@@ -115,46 +124,55 @@ fn setup_ui(mut commands: Commands) {
     commands.entity(main).add_child(todo_input);
     commands.entity(todo_input).add_child(todo_input_text);
     commands.entity(main).add_child(todo_list);
+
+    set_focus.send(SetFocus(Some(todo_input_text)));
 }
 
 fn handle_interaction_for_delete(
-    mut commands: Commands,
     mut actions: EventWriter<ModelTodoAction>,
     mut delete_interaction_q: Query<
         (&Interaction, &View),
         (Changed<Interaction>, With<TodoDeleteView>),
     >,
-    mut todo_text_q: Query<Entity, (With<TodoTextView>, With<ActiveTyping>)>,
+    mut set_focus: EventWriter<SetFocus>,
 ) {
     for (interaction, view) in delete_interaction_q.iter_mut() {
         if *interaction == Interaction::Pressed {
             actions.send(ModelTodoAction::Delete(view.0));
-            for entity in todo_text_q.iter_mut() {
-                commands.entity(entity).remove::<ActiveTyping>();
-            }
+            set_focus.send(SetFocus(None));
         }
     }
 }
 
 fn handle_todo_text_click(
-    mut commands: Commands,
     mut check_interaction_q: Query<
         (&Interaction, Entity),
         (Changed<Interaction>, With<TodoTextView>),
     >,
     mut todo_text_q: Query<(Entity, &Parent), (With<Text>, With<TodoTextView>)>,
-    mut active_todo_input_q: Query<(Entity, &ActiveTyping), With<TodoInput>>,
+    mut set_focus: EventWriter<SetFocus>,
 ) {
     for (interaction, clicked_entity) in check_interaction_q.iter_mut() {
         if *interaction == Interaction::Pressed {
-            for (entity, _) in active_todo_input_q.iter_mut() {
-                commands.entity(entity).remove::<ActiveTyping>();
-            }
             for (entity, parent) in todo_text_q.iter_mut() {
                 if parent.get() == clicked_entity {
-                    commands.entity(entity).insert(ActiveTyping);
-                } else {
-                    commands.entity(entity).remove::<ActiveTyping>();
+                    set_focus.send(SetFocus(Some(entity)));
+                }
+            }
+        }
+    }
+}
+
+fn handle_text_input_click(
+    mut check_interaction_q: Query<(&Interaction, Entity), (Changed<Interaction>, With<TodoInput>)>,
+    mut todo_text_q: Query<(Entity, &Parent), (With<Text>, With<TodoInput>)>,
+    mut set_focus: EventWriter<SetFocus>,
+) {
+    for (interaction, clicked_entity) in check_interaction_q.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            for (entity, parent) in todo_text_q.iter_mut() {
+                if parent.get() == clicked_entity {
+                    set_focus.send(SetFocus(Some(entity)));
                 }
             }
         }
@@ -162,14 +180,12 @@ fn handle_todo_text_click(
 }
 
 fn handle_check_todo_click(
-    mut commands: Commands,
     mut actions: EventWriter<ModelTodoAction>,
     model: Query<&ModelTodoChecked, ModelOnly>,
     mut check_interaction_q: Query<
         (&Interaction, &View),
         (Changed<Interaction>, With<TodoCheckView>),
     >,
-    mut todo_text_q: Query<(Entity, &ActiveTyping), With<TodoTextView>>,
 ) {
     for (interaction, view) in check_interaction_q.iter_mut() {
         if *interaction == Interaction::Pressed {
@@ -177,44 +193,32 @@ fn handle_check_todo_click(
                 view.0,
                 !model.get(view.0).unwrap().0,
             ));
-            for (entity, _) in todo_text_q.iter_mut() {
-                commands.entity(entity).remove::<ActiveTyping>();
-            }
         }
     }
 }
 
 fn handle_enter(
-    mut commands: Commands,
     mut actions: EventWriter<ModelTodoAction>,
-    mut active_todo_input_q: Query<
-        (&mut Text, &ActiveTyping),
-        (With<TodoInput>, Without<TodoTextView>),
-    >,
-    mut todo_input_q: Query<
-        Entity,
-        (
-            With<TodoInput>,
-            Without<TodoTextView>,
-            Without<ActiveTyping>,
-        ),
-    >,
-    mut todo_text_q: Query<(Entity, &ActiveTyping), (With<TodoTextView>, Without<TodoInput>)>,
+    mut todo_input_q: Query<(&mut Text, Entity), With<TodoInput>>,
     keys: Res<Input<KeyCode>>,
+    focus: Res<Focus>,
 ) {
+    if focus.is_none() {
+        return;
+    }
     if keys.just_pressed(KeyCode::Return) {
-        for (mut todo_input_text, _) in active_todo_input_q.iter_mut() {
+        if let Ok((mut todo_input_text, _)) = todo_input_q.get_mut(focus.unwrap()) {
             actions.send(ModelTodoAction::Create(
                 todo_input_text.sections[0].value.clone(),
             ));
             todo_input_text.sections[0].value = "".to_string();
         }
-        for (entity, _) in todo_text_q.iter_mut() {
-            commands.entity(entity).remove::<ActiveTyping>();
-        }
-        for entity in todo_input_q.iter_mut() {
-            commands.entity(entity).insert(ActiveTyping);
-        }
+    }
+}
+
+fn handle_focus(mut set_focus_events: EventReader<SetFocus>, mut focus: ResMut<Focus>) {
+    for ev in set_focus_events.iter() {
+        *focus = Focus(ev.0)
     }
 }
 
@@ -233,21 +237,23 @@ fn handle_enter(
 /// We want the equivalent of JS `input.addEventListener('oninput', (e) => { model.value = e.target.value })`
 fn handle_typing(
     mut evr_char: EventReader<ReceivedCharacter>,
-    mut active_todo_input_q: Query<
-        (&mut Text, &ActiveTyping),
-        (With<TodoInput>, Without<TodoTextView>),
-    >,
+    mut todo_input_q: Query<&mut Text, (With<TodoInput>, Without<TodoTextView>)>,
     mut actions: EventWriter<ModelTodoAction>,
-    mut active_todo_text_q: Query<(&View, &ActiveTyping), With<TodoTextView>>,
+    todo_text_q: Query<&View, With<TodoTextView>>,
+    focus: Res<Focus>,
 ) {
+    if focus.is_none() {
+        return;
+    }
     for ev in evr_char.iter() {
         if !ev.char.is_control() {
             // TODO: MVC is not used for todo input, but for todo list it is, should it be improved?
-            for (mut todo_input_text, _) in active_todo_input_q.iter_mut() {
+            if let Ok(mut todo_input_text) = todo_input_q.get_mut(focus.unwrap()) {
                 todo_input_text.sections[0].value =
                     format!("{}{}", todo_input_text.sections[0].value, ev.char,);
             }
-            for (view, _) in active_todo_text_q.iter_mut() {
+
+            if let Ok(view) = todo_text_q.get(focus.unwrap()) {
                 actions.send(ModelTodoAction::UpdateText(view.0, ev.char.to_string()));
             }
         }
@@ -420,7 +426,7 @@ fn update_displayed_todos_text(
 ) {
     for (mut text, view, _) in views.iter_mut() {
         if let Ok(todo) = todos_text.get(view.0) {
-            text.sections[0].value = todo.0.clone();
+            text.sections[0].value = format!("{}{}", text.sections[0].value, todo.0.clone());
         }
     }
 }
