@@ -15,12 +15,13 @@ fn main() {
         .add_event::<SetFocus>()
         .init_resource::<Focus>()
         .add_systems(Startup, setup)
-        .add_systems(PreUpdate, handle_typing)
-        .add_systems(PreUpdate, handle_delete_todo_click)
-        .add_systems(PreUpdate, handle_enter)
-        .add_systems(PreUpdate, handle_check_todo_click)
-        .add_systems(PreUpdate, handle_todo_text_click)
-        .add_systems(Update, handle_focus)
+        .add_systems(PreUpdate, handle_typing.before(handle_focus))
+        .add_systems(PreUpdate, handle_delete_todo_click.before(handle_focus))
+        .add_systems(PreUpdate, handle_enter.before(handle_focus))
+        .add_systems(PreUpdate, handle_check_todo_click.before(handle_focus))
+        .add_systems(PreUpdate, handle_todo_text_click.before(handle_focus))
+        .add_systems(PreUpdate, handle_text_input_click.before(handle_focus))
+        .add_systems(PreUpdate, handle_focus)
         .add_systems(Update, update_todo_model)
         .add_systems(Update, display_todos.after(update_todo_model))
         .add_systems(Update, update_displayed_todos_text.after(update_todo_model))
@@ -146,6 +147,22 @@ fn handle_todo_text_click(
     }
 }
 
+fn handle_text_input_click(
+    mut check_interaction_q: Query<(&Interaction, Entity), (Changed<Interaction>, With<TodoInput>)>,
+    mut todo_text_q: Query<(Entity, &Parent, &Text), With<TodoInput>>,
+    mut set_focus: EventWriter<SetFocus>,
+) {
+    for (interaction, clicked_entity) in check_interaction_q.iter_mut() {
+        if *interaction == Interaction::Pressed {
+            for (entity, parent, _) in todo_text_q.iter_mut() {
+                if parent.get() == clicked_entity {
+                    set_focus.send(SetFocus(Some(entity)));
+                }
+            }
+        }
+    }
+}
+
 fn handle_check_todo_click(
     mut actions: EventWriter<TodoAction>,
     model: Query<&TodoChecked, ModelOnly>,
@@ -153,8 +170,6 @@ fn handle_check_todo_click(
         (&Interaction, &View),
         (Changed<Interaction>, With<TodoCheckView>),
     >,
-    todo_input_q: Query<(Entity, &Text), With<TodoInput>>,
-    mut set_focus: EventWriter<SetFocus>,
 ) {
     for (interaction, view) in check_interaction_q.iter_mut() {
         if *interaction == Interaction::Pressed {
@@ -162,7 +177,6 @@ fn handle_check_todo_click(
                 view.0,
                 !model.get(view.0).unwrap().0,
             ));
-            set_focus.send(SetFocus(Some(todo_input_q.single().0)));
         }
     }
 }
@@ -172,10 +186,8 @@ fn handle_enter(
     mut todo_input_q: Query<(&mut Text, Entity), With<TodoInput>>,
     keys: Res<Input<KeyCode>>,
     focus: Res<Focus>,
-    mut set_focus: EventWriter<SetFocus>,
 ) {
     if focus.is_none() {
-        set_focus.send(SetFocus(Some(todo_input_q.single().1)));
         return;
     }
     if keys.just_pressed(KeyCode::Return) {
@@ -185,7 +197,6 @@ fn handle_enter(
             ));
             todo_input_text.sections[0].value = "".to_string();
         }
-        set_focus.send(SetFocus(Some(todo_input_q.single().1)));
     }
 }
 
