@@ -379,7 +379,7 @@ fn update_displayed_todos_text(
     todos_text: Query<&TodoText, (Changed<TodoText>, ModelOnly)>,
 ) {
     for (mut text, view, _) in views.iter_mut() {
-        if let Some(todo) = todos_text.get(view.0).ok() {
+        if let Ok(todo) = todos_text.get(view.0) {
             text.sections[0].value = format!("{}{}", text.sections[0].value, todo.0.clone());
         }
     }
@@ -390,7 +390,7 @@ fn update_displayed_todos_checked(
     todos_checked: Query<&TodoChecked, (Changed<TodoChecked>, ModelOnly)>,
 ) {
     for (mut text, view) in views.iter_mut() {
-        if let Some(todo) = todos_checked.get(view.0).ok() {
+        if let Ok(todo) = todos_checked.get(view.0) {
             if todo.0 {
                 text.sections[0].style.color = Color::GRAY;
             } else {
