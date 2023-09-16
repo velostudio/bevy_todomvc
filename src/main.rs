@@ -181,7 +181,7 @@ fn handle_check_todo_click(
 
 fn handle_enter(
     mut actions: EventWriter<ModelTodoAction>,
-    mut todo_input_q: Query<(&mut Text, Entity), With<TodoInput>>,
+    mut todo_input_q: Query<&mut Text, With<TodoInput>>,
     keys: Res<Input<KeyCode>>,
     focus: Res<Focus>,
 ) {
@@ -189,7 +189,7 @@ fn handle_enter(
         return;
     };
     if keys.just_pressed(KeyCode::Return) {
-        if let Ok((mut todo_input_text, _)) = todo_input_q.get_mut(focus) {
+        if let Ok(mut todo_input_text) = todo_input_q.get_mut(focus) {
             actions.send(ModelTodoAction::Create(
                 todo_input_text.sections[0].value.clone(),
             ));
@@ -467,9 +467,9 @@ fn display_todos(
 
 fn update_displayed_todos_text(
     todos_text: Query<&ModelTodoText, (Changed<ModelTodoText>, ModelOnly)>,
-    mut views: Query<(&mut Text, &View, &TodoTextView), ViewOnly>,
+    mut views: Query<(&mut Text, &View), (With<TodoTextView>, ViewOnly)>,
 ) {
-    for (mut text, view, _) in views.iter_mut() {
+    for (mut text, view) in views.iter_mut() {
         if let Ok(todo) = todos_text.get(view.0) {
             text.sections[0].value = todo.0.clone();
         }
@@ -497,9 +497,9 @@ fn update_displayed_todos_checked(
 
 fn update_displayed_input_text(
     input_text: Query<&ModelInputText, (Changed<ModelInputText>, ModelOnly)>,
-    mut views: Query<(&mut Text, &View, &TodoInput), ViewOnly>,
+    mut views: Query<(&mut Text, &View), (With<TodoInput>, ViewOnly)>,
 ) {
-    for (mut text, view, _) in views.iter_mut() {
+    for (mut text, view) in views.iter_mut() {
         if let Ok(todo) = input_text.get(view.0) {
             text.sections[0].value = todo.0.clone();
         }
