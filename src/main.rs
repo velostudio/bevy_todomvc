@@ -3,6 +3,8 @@
 //! ->-> display_todos: (Todo, Model) -> Spawn((Text2dBundle, View))
 //! ->-> update_displayed_todos: (Todo, Model) -> Mutate((Text2dBundle, View))
 
+#![allow(clippy::type_complexity)]
+
 use bevy::prelude::*;
 
 fn main() {
