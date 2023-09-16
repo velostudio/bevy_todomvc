@@ -225,14 +225,14 @@ fn handle_typing(
             if let Ok((text, view)) = todo_input_q.get_mut(focus) {
                 input_actions.send(ModelInputAction::UpdateText(
                     view.0,
-                    format!("{}{}", text.sections[0].value, ev.char.to_string()),
+                    format!("{}{}", text.sections[0].value, ev.char),
                 ));
             }
 
             if let Ok((text, view)) = todo_text_q.get(focus) {
                 todo_actions.send(ModelTodoAction::UpdateText(
                     view.0,
-                    format!("{}{}", text.sections[0].value, ev.char.to_string()),
+                    format!("{}{}", text.sections[0].value, ev.char),
                 ));
             }
         }
