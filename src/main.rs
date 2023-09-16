@@ -185,11 +185,11 @@ fn handle_enter(
     keys: Res<Input<KeyCode>>,
     focus: Res<Focus>,
 ) {
-    if focus.is_none() {
+    let Some(focus) = **focus else {
         return;
-    }
+    };
     if keys.just_pressed(KeyCode::Return) {
-        if let Ok((mut todo_input_text, _)) = todo_input_q.get_mut(focus.unwrap()) {
+        if let Ok((mut todo_input_text, _)) = todo_input_q.get_mut(focus) {
             actions.send(ModelTodoAction::Create(
                 todo_input_text.sections[0].value.clone(),
             ));
@@ -215,19 +215,19 @@ fn handle_typing(
     todo_text_q: Query<(&Text, &View), With<TodoTextView>>,
     focus: Res<Focus>,
 ) {
-    if focus.is_none() {
+    let Some(focus) = **focus else {
         return;
-    }
+    };
     for ev in evr_char.iter() {
         if !ev.char.is_control() {
-            if let Ok((text, view)) = todo_input_q.get_mut(focus.unwrap()) {
+            if let Ok((text, view)) = todo_input_q.get_mut(focus) {
                 input_actions.send(ModelInputAction::UpdateText(
                     view.0,
                     format!("{}{}", text.sections[0].value, ev.char.to_string()),
                 ));
             }
 
-            if let Ok((text, view)) = todo_text_q.get(focus.unwrap()) {
+            if let Ok((text, view)) = todo_text_q.get(focus) {
                 todo_actions.send(ModelTodoAction::UpdateText(
                     view.0,
                     format!("{}{}", text.sections[0].value, ev.char.to_string()),
