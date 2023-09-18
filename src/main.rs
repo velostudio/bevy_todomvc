@@ -1,8 +1,3 @@
-//! handle_mouse_input: Input<MouseButton> -> Event<ModelTodoAction>
-//! -> update_todo_model: Event<ModelTodoAction> -> SpawnOrMutate(Todo, Model)
-//! ->-> display_todos: (Todo, Model) -> Spawn((Text2dBundle, View))
-//! ->-> update_displayed_todos: (Todo, Model) -> Mutate((Text2dBundle, View))
-
 #![allow(clippy::type_complexity)]
 
 use bevy::prelude::*;
@@ -17,14 +12,11 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(Startup, setup_ui)
         .add_systems(PreUpdate, handle_typing.before(handle_focus))
-        .add_systems(
-            PreUpdate,
-            handle_interaction_for_delete.before(handle_focus),
-        )
+        .add_systems(PreUpdate, handle_deleter_interaction.before(handle_focus))
         .add_systems(PreUpdate, handle_enter.before(handle_focus))
-        .add_systems(PreUpdate, handle_check_todo_click.before(handle_focus))
-        .add_systems(PreUpdate, handle_todo_text_click.before(handle_focus))
-        .add_systems(PreUpdate, handle_text_input_click.before(handle_focus))
+        .add_systems(PreUpdate, handle_checkmark_interaction.before(handle_focus))
+        .add_systems(PreUpdate, handle_text_interaction.before(handle_focus))
+        .add_systems(PreUpdate, handle_input_interaction.before(handle_focus))
         .add_systems(PreUpdate, handle_focus)
         .add_systems(Update, update_todo_model)
         .add_systems(Update, update_input_model)
@@ -65,10 +57,10 @@ struct TodoRootView;
 struct TodoTextView;
 
 #[derive(Component)]
-struct TodoCheckView;
+struct TodoCheckmarkView;
 
 #[derive(Component)]
-struct TodoDeleteView;
+struct TodoDeleterView;
 
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
@@ -112,12 +104,13 @@ fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAct
     input_actions.send(ModelInputAction::Create("".to_string()));
 }
 
-fn handle_interaction_for_delete(
-    mut actions: EventWriter<ModelTodoAction>,
+/// Interaction -> Event<ModelTodoAction> + Event<SetFocus>
+fn handle_deleter_interaction(
     mut delete_interaction_q: Query<
         (&Interaction, &View),
-        (Changed<Interaction>, With<TodoDeleteView>),
+        (Changed<Interaction>, With<TodoDeleterView>),
     >,
+    mut actions: EventWriter<ModelTodoAction>,
     mut set_focus: EventWriter<SetFocus>,
 ) {
     for (interaction, view) in delete_interaction_q.iter_mut() {
@@ -128,7 +121,8 @@ fn handle_interaction_for_delete(
     }
 }
 
-fn handle_todo_text_click(
+/// Interaction -> Event<SetFocus>
+fn handle_text_interaction(
     mut check_interaction_q: Query<
         (&Interaction, Entity),
         (Changed<Interaction>, With<TodoTextView>),
@@ -147,14 +141,15 @@ fn handle_todo_text_click(
     }
 }
 
-fn handle_text_input_click(
+/// Interaction -> Event<SetFocus>
+fn handle_input_interaction(
     mut check_interaction_q: Query<(&Interaction, Entity), (Changed<Interaction>, With<TodoInput>)>,
-    mut todo_text_q: Query<(Entity, &Parent), (With<Text>, With<TodoInput>)>,
+    todo_text_q: Query<(Entity, &Parent), (With<Text>, With<TodoInput>)>,
     mut set_focus: EventWriter<SetFocus>,
 ) {
     for (interaction, clicked_entity) in check_interaction_q.iter_mut() {
         if *interaction == Interaction::Pressed {
-            for (entity, parent) in todo_text_q.iter_mut() {
+            for (entity, parent) in todo_text_q.iter() {
                 if parent.get() == clicked_entity {
                     set_focus.send(SetFocus(Some(entity)));
                 }
@@ -163,13 +158,14 @@ fn handle_text_input_click(
     }
 }
 
-fn handle_check_todo_click(
-    mut actions: EventWriter<ModelTodoAction>,
-    model: Query<&ModelTodoChecked, ModelOnly>,
+/// Interaction -> Event<ModelTodoAction>
+fn handle_checkmark_interaction(
     mut check_interaction_q: Query<
         (&Interaction, &View),
-        (Changed<Interaction>, With<TodoCheckView>),
+        (Changed<Interaction>, With<TodoCheckmarkView>),
     >,
+    model: Query<&ModelTodoChecked, ModelOnly>,
+    mut actions: EventWriter<ModelTodoAction>,
 ) {
     for (interaction, view) in check_interaction_q.iter_mut() {
         if *interaction == Interaction::Pressed {
@@ -181,6 +177,9 @@ fn handle_check_todo_click(
     }
 }
 
+/// Input<KeyCode> + Res<Focus> -> Event<ModelTodoAction>
+///
+/// But this system also directly updates the `Text` which it probably shouldn't (consider splitting)
 fn handle_enter(
     mut actions: EventWriter<ModelTodoAction>,
     mut todo_input_q: Query<&mut Text, With<TodoInput>>,
@@ -200,6 +199,7 @@ fn handle_enter(
     }
 }
 
+/// Event<SetFocus> -> Res<Focus>
 fn handle_focus(mut set_focus_events: EventReader<SetFocus>, mut focus: ResMut<Focus>) {
     for ev in set_focus_events.iter() {
         *focus = Focus(ev.0)
@@ -209,13 +209,17 @@ fn handle_focus(mut set_focus_events: EventReader<SetFocus>, mut focus: ResMut<F
 /// The question is how to express this at creation (setup_ui)
 ///
 /// We want the equivalent of JS `input.addEventListener('oninput', (e) => { model.value = e.target.value })`
+///
+/// Event<ReceivedCharacter> -> Event<ModelInputAction> + Event<ModelTodoAction>
+///
+/// But this system also directly updates the `Text` which it probably shouldn't (consider splitting)
 fn handle_typing(
     mut evr_char: EventReader<ReceivedCharacter>,
+    focus: Res<Focus>,
+    todo_text_q: Query<(&Text, &View), With<TodoTextView>>,
+    mut todo_input_q: Query<(&Text, &View), (With<TodoInput>, Without<TodoTextView>)>,
     mut todo_actions: EventWriter<ModelTodoAction>,
     mut input_actions: EventWriter<ModelInputAction>,
-    mut todo_input_q: Query<(&Text, &View), (With<TodoInput>, Without<TodoTextView>)>,
-    todo_text_q: Query<(&Text, &View), With<TodoTextView>>,
-    focus: Res<Focus>,
 ) {
     let Some(focus) = **focus else {
         return;
@@ -240,9 +244,11 @@ fn handle_typing(
 }
 
 /// Flush after this
+///
+/// Event<ModelTodoAction> -> Model
 fn update_todo_model(
-    mut commands: Commands,
     mut actions: EventReader<ModelTodoAction>,
+    mut commands: Commands,
     mut todo_text: Query<&mut ModelTodoText, ModelOnly>,
     mut todo_checked: Query<&mut ModelTodoChecked, ModelOnly>,
 ) {
@@ -264,6 +270,9 @@ fn update_todo_model(
     }
 }
 
+/// Flush after this
+///
+/// Event<ModelInputAction> -> Model
 fn update_input_model(
     mut commands: Commands,
     mut actions: EventReader<ModelInputAction>,
@@ -281,10 +290,14 @@ fn update_input_model(
     }
 }
 
+/// Whenever a model (input) is created
+/// display it by creating a view and appending it to the target parent view
+///
+/// ModelInputText -> View + Event<SetFocus>
 fn display_text_input(
-    mut commands: Commands,
-    inputs: Query<(ModelEntity, &ModelInputText), (Added<ModelInputText>, ModelOnly)>,
+    inputs: Query<(ModelInputEntity, &ModelInputText), (Added<ModelInputText>, ModelOnly)>,
     todo_input_container: Query<Entity, With<TodoInputContainer>>,
+    mut commands: Commands,
     mut set_focus: EventWriter<SetFocus>,
 ) {
     for (model_entity, input) in inputs.iter() {
@@ -341,16 +354,23 @@ fn display_checked(checked: &ModelTodoChecked) -> &'static str {
     }
 }
 
+/// Whenever a model (todo) is created,
+/// display it by creating a view and appending it to the target parent view
+///
+/// ModelTodo{Text,Checked} -> View
 fn display_todos(
-    mut commands: Commands,
     todos: Query<
-        (ModelEntity, &ModelTodoText, &ModelTodoChecked),
+        (ModelTodoEntity, &ModelTodoText, &ModelTodoChecked),
         (Added<ModelTodoText>, Added<ModelTodoChecked>, ModelOnly),
     >,
     todo_list_q: Query<Entity, With<TodoList>>,
+    mut commands: Commands,
 ) {
+    // an outer reference
+    let todo_list = todo_list_q.single();
+    // some loop
     for (model_entity, todo, checked) in todos.iter() {
-        let todo_list = todo_list_q.single();
+        // constructing a view
         let todo_item = commands
             .spawn((
                 NodeBundle {
@@ -378,7 +398,7 @@ fn display_todos(
                     ..default()
                 },
                 View(model_entity),
-                TodoCheckView,
+                TodoCheckmarkView,
             ))
             .id();
         let todo_check_txt = commands
@@ -388,7 +408,7 @@ fn display_todos(
                     ..default()
                 },
                 View(model_entity),
-                TodoCheckView,
+                TodoCheckmarkView,
             ))
             .id();
         commands.entity(todo_check_btn).add_child(todo_check_txt);
@@ -438,7 +458,7 @@ fn display_todos(
                     ..default()
                 },
                 View(model_entity),
-                TodoDeleteView,
+                TodoDeleterView,
             ))
             .id();
         let todo_delete_txt = commands
@@ -451,6 +471,7 @@ fn display_todos(
             ))
             .id();
 
+        // assembling and inserting a view
         // todo_list
         // - [todo_item]
         //   - todo_check_btn
@@ -467,12 +488,17 @@ fn display_todos(
     }
 }
 
+/// Whenever a model (todo.text) is updated, views that depend on it are updated
+///
+/// ModelTodoText -> View
 fn update_displayed_todos_text(
     todos_text: Query<&ModelTodoText, (Changed<ModelTodoText>, ModelOnly)>,
     mut views: Query<(&mut Text, &View), (With<TodoTextView>, ViewOnly)>,
 ) {
+    // outer loop, library-provided
     for (mut text, view) in views.iter_mut() {
         if let Ok(todo) = todos_text.get(view.0) {
+            // inner logic, user-provided
             text.sections[0].value = todo.0.clone();
         }
     }
@@ -483,12 +509,20 @@ fn update_displayed_todos_text(
 /// this should be equivalent to...
 /// We need to store a reference to a model entity on every dependent view entity
 /// We also need to store a reference to a model entity on every view entity that sends an action which is not ideal
+///
+/// Whenever a model (todo.checked) is updated, views that depend on it are updated
+///
+/// ModelTodoChecked -> View
 fn update_displayed_todos_checked(
-    model_checked: Query<&ModelTodoChecked, (Changed<ModelTodoChecked>, ModelOnly)>,
-    mut views: Query<(&mut Text, &View, Option<&TodoCheckView>), ViewOnly>,
+    model_todo_checked: Query<&ModelTodoChecked, (Changed<ModelTodoChecked>, ModelOnly)>,
+    mut views: Query<(&mut Text, &View, Option<&TodoCheckmarkView>), ViewOnly>,
 ) {
+    // outer loop, library-provided
     for (mut text, view, maybe_checkbox) in views.iter_mut() {
-        if let Ok(checked) = model_checked.get(view.0) {
+        if let Ok(checked) = model_todo_checked.get(view.0) {
+            // inner logic, user-provided
+            // unfortunately, this particular system conflates both TodoCheckView and TodoTextView
+            // so this separation is not clear
             text.sections[0].style.color = if checked.0 { Color::GRAY } else { Color::WHITE };
             if maybe_checkbox.is_some() {
                 text.sections[0].value = display_checked(checked).to_string();
@@ -497,21 +531,29 @@ fn update_displayed_todos_checked(
     }
 }
 
+/// Whenever a model (input.text) is updated, views that depend on it are updated
+///
+/// ModelInputText -> View
 fn update_displayed_input_text(
-    input_text: Query<&ModelInputText, (Changed<ModelInputText>, ModelOnly)>,
+    model_input_text: Query<&ModelInputText, (Changed<ModelInputText>, ModelOnly)>,
     mut views: Query<(&mut Text, &View), (With<TodoInput>, ViewOnly)>,
 ) {
+    // outer loop, library-provided
     for (mut text, view) in views.iter_mut() {
-        if let Ok(todo) = input_text.get(view.0) {
+        if let Ok(todo) = model_input_text.get(view.0) {
+            // inner logic, user-provided
             text.sections[0].value = todo.0.clone();
         }
     }
 }
 
+/// Whenever a model is removed, views that depend on it are updated
+///
+/// Model -> View
 fn remove_displayed_todos(
-    mut commands: Commands,
-    views: Query<(Entity, &View), (ViewOnly, With<TodoRootView>)>,
     mut removed: RemovedComponents<Model>,
+    views: Query<(Entity, &View), (ViewOnly, With<TodoRootView>)>,
+    mut commands: Commands,
 ) {
     for entity in removed.iter() {
         // TODO: O(n^2) is too expensive here, should we have 2-way-relationship?
@@ -532,14 +574,24 @@ struct Model;
 /// Marker component to indicate that this entity is part of the View
 ///
 /// Mutually exclusive with [`Model`]
+///
+/// This currently also "tracks" the model entity
 #[derive(Component)]
-struct View(ModelEntity);
+struct View(Entity);
 
+/// This type alias has the effect of marking a `Model` and not a `View`
+/// equivalent to `Marker::Model` for `enum Marker { Model, View }`
 type ModelOnly = (With<Model>, Without<View>);
 
+/// This type alias has the effect of marking a `View` and not a `Model`
+/// equivalent to `Marker::View` for `enum Marker { Model, View }`
 type ViewOnly = (Without<Model>, With<View>);
 
-type ModelEntity = Entity;
+/// Probably unnecessary type alias, documents the intent
+type ModelTodoEntity = Entity;
+
+/// Probably unnecessary type alias, documents the intent
+type ModelInputEntity = Entity;
 
 /// Combined with `ModelTodoText` and `ModelTodoChecked`,
 /// this is functionally equivalent to
@@ -561,25 +613,45 @@ type ModelEntity = Entity;
 ///
 /// Components are a stand-in for properties.
 /// Events are a stand-in for methods.
+/// Entities are a stand-in for references.
 #[derive(Event)]
 enum ModelTodoAction {
     Create(String),
-    Delete(ModelEntity),
-    UpdateText(ModelEntity, String),
-    UpdateChecked(ModelEntity, bool),
+    Delete(ModelTodoEntity),
+    UpdateText(ModelTodoEntity, String),
+    UpdateChecked(ModelTodoEntity, bool),
 }
 
+/// See [`ModelTodoAction`].
 #[derive(Component)]
 struct ModelTodoText(String);
 
+/// See [`ModelTodoAction`].
 #[derive(Component)]
 struct ModelTodoChecked(bool);
 
+/// Combined with `ModelInputText`,
+/// this is functionally equivalent to
+/// ```rs
+/// struct Input {
+///     text: String,
+/// }
+///
+/// impl Todos {
+///     fn create(&mut self, text: String);
+///     fn update_text(&mut self, idx: usize, text: String);
+/// }
+/// ```
+///
+/// Components are a stand-in for properties.
+/// Events are a stand-in for methods.
+/// Entities are a stand-in for references.
 #[derive(Event)]
 enum ModelInputAction {
     Create(String),
-    UpdateText(ModelEntity, String),
+    UpdateText(ModelInputEntity, String),
 }
 
+/// See [`ModelInputAction`].
 #[derive(Component)]
 struct ModelInputText(String);
