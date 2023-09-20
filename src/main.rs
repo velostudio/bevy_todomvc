@@ -555,12 +555,13 @@ fn remove_displayed_todos(
     views: Query<(Entity, &View), (ViewOnly, With<TodoRootView>)>,
     mut commands: Commands,
 ) {
-    for entity in removed.iter() {
-        // TODO: O(n^2) is too expensive here, should we have 2-way-relationship?
-        for (view_entity, view) in views.iter() {
-            if view.0 == entity {
-                commands.entity(view_entity).despawn_recursive();
-            }
+    let models_to_views = views
+        .iter()
+        .map(|(entity, view)| (view.0, entity))
+        .collect::<std::collections::HashMap<_, _>>();
+    for model_entity in removed.iter() {
+        if let Some(view_entity) = models_to_views.get(&model_entity) {
+            commands.entity(*view_entity).despawn_recursive();
         }
     }
 }
