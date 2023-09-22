@@ -251,11 +251,17 @@ fn update_todo_model(
     mut commands: Commands,
     mut todo_text: Query<&mut ModelTodoText, ModelOnly>,
     mut todo_checked: Query<&mut ModelTodoChecked, ModelOnly>,
+    mut todo_edit: Query<&mut ModelTodoEdit, ModelOnly>,
 ) {
     for action in actions.iter() {
         match action {
             ModelTodoAction::Create(text) => {
-                commands.spawn((ModelTodoText(text.clone()), ModelTodoChecked(false), Model));
+                commands.spawn((
+                    ModelTodoText(text.clone()),
+                    ModelTodoChecked(false),
+                    ModelTodoEdit(false),
+                    Model,
+                ));
             }
             ModelTodoAction::Delete(e) => {
                 commands.entity(*e).despawn_recursive();
@@ -265,6 +271,9 @@ fn update_todo_model(
             }
             ModelTodoAction::UpdateText(e, text) => {
                 todo_text.get_mut(*e).unwrap().0 = text.clone();
+            }
+            ModelTodoAction::Edit(e, edit) => {
+                todo_edit.get_mut(*e).unwrap().0 = *edit;
             }
         }
     }
@@ -621,6 +630,7 @@ enum ModelTodoAction {
     Delete(ModelTodoEntity),
     UpdateText(ModelTodoEntity, String),
     UpdateChecked(ModelTodoEntity, bool),
+    Edit(ModelTodoEntity, bool),
 }
 
 /// See [`ModelTodoAction`].
@@ -630,6 +640,9 @@ struct ModelTodoText(String);
 /// See [`ModelTodoAction`].
 #[derive(Component)]
 struct ModelTodoChecked(bool);
+
+#[derive(Component)]
+struct ModelTodoEdit(bool);
 
 /// Combined with `ModelInputText`,
 /// this is functionally equivalent to
