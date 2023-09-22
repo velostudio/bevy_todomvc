@@ -822,3 +822,35 @@ mod colors {
         Color::hex(s).unwrap()
     }
 }
+
+mod text_styles {
+    #![allow(unused)]
+
+    use bevy::prelude::{default, TextStyle};
+
+    use crate::colors;
+
+    pub fn footer() -> TextStyle {
+        TextStyle {
+            font_size: 14.0 * 1.2,
+            color: colors::footer_color(),
+            ..default()
+        }
+    }
+
+    pub fn todo() -> TextStyle {
+        TextStyle {
+            font_size: 24.0 * 1.2,
+            color: colors::body_color(),
+            ..default()
+        }
+    }
+
+    pub fn title() -> TextStyle {
+        TextStyle {
+            font_size: 100.0 * 1.2,
+            color: colors::todoapp_h1_color(),
+            ..default()
+        }
+    }
+}
