@@ -25,7 +25,11 @@ fn main() {
         .add_systems(Update, update_displayed_todos_text.after(update_todo_model))
         .add_systems(
             Update,
-            update_displayed_todos_checked.after(update_todo_model),
+            update_displayed_todos_text_checked.after(update_todo_model),
+        )
+        .add_systems(
+            Update,
+            update_displayed_todos_checkmark_checked.after(update_todo_model),
         )
         .add_systems(
             Update,
@@ -86,8 +90,11 @@ fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAct
             NodeBundle {
                 style: Style {
                     flex_direction: FlexDirection::Column,
+                    width: Val::Percent(100.0),
+                    border: UiRect::top(Val::Px(1.0)),
                     ..default()
                 },
+                border_color: colors::main_border_top().into(),
                 ..default()
             },
             markers::TodoList,
@@ -97,6 +104,10 @@ fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAct
         .spawn(NodeBundle {
             style: Style {
                 flex_direction: FlexDirection::Row,
+                justify_content: JustifyContent::SpaceBetween,
+                align_items: AlignItems::Center,
+                width: Val::Percent(100.),
+                padding: UiRect::axes(Val::Px(15.0), Val::Px(10.0)),
                 ..default()
             },
             ..default()
@@ -120,19 +131,32 @@ fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAct
         })
         .id();
 
-    let todo_filter_all_btn = commands.spawn(ButtonBundle::default()).id();
+    let filter_btn = |border_color: Color| ButtonBundle {
+        border_color: border_color.into(),
+        style: Style {
+            border: UiRect::all(Val::Px(1.0)),
+            padding: UiRect::axes(Val::Px(7.0), Val::Px(3.0)),
+            margin: UiRect::all(Val::Px(3.0)),
+            ..default()
+        },
+        ..default()
+    };
+
+    let todo_filter_all_btn = commands
+        .spawn(filter_btn(colors::filters_li_a_selected()))
+        .id();
 
     let todo_filter_all_txt = commands
         .spawn(TextBundle::from_section("All", text_styles::footer()))
         .id();
 
-    let todo_filter_active_btn = commands.spawn(ButtonBundle::default()).id();
+    let todo_filter_active_btn = commands.spawn(filter_btn(Color::NONE)).id();
 
     let todo_filter_active_txt = commands
         .spawn(TextBundle::from_section("Active", text_styles::footer()))
         .id();
 
-    let todo_filter_completed_btn = commands.spawn(ButtonBundle::default()).id();
+    let todo_filter_completed_btn = commands.spawn(filter_btn(Color::NONE)).id();
 
     let todo_filter_completed_txt = commands
         .spawn(TextBundle::from_section("Completed", text_styles::footer()))
@@ -453,11 +477,11 @@ fn display_text_input(
 }
 
 /// Helper function
-fn display_checked(checked: &ModelTodoChecked) -> &'static str {
+fn display_checked(checked: &ModelTodoChecked) -> TextStyle {
     if checked.0 {
-        "[x]"
+        text_styles::checkmark()
     } else {
-        "[ ]"
+        text_styles::checkmark_complete()
     }
 }
 
@@ -481,10 +505,16 @@ fn display_todos(
         let todo_item = commands
             .spawn((
                 NodeBundle {
+                    #[cfg(feature = "debug")]
+                    background_color: Color::RED.into(),
                     style: Style {
-                        margin: UiRect::all(Val::Px(5.)),
+                        justify_content: JustifyContent::SpaceBetween,
+                        align_items: AlignItems::Center,
+                        border: UiRect::bottom(Val::Px(1.0)),
+                        width: Val::Percent(100.),
                         ..default()
                     },
+                    border_color: colors::todo_list_item_border_bottom().into(),
                     ..default()
                 },
                 View(model_entity),
@@ -494,14 +524,17 @@ fn display_todos(
         let todo_check_btn = commands
             .spawn((
                 ButtonBundle {
+                    #[cfg(feature = "debug")]
+                    background_color: Color::BLUE.into(),
                     style: Style {
                         width: Val::Px(40.),
                         height: Val::Px(40.),
                         justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
                         overflow: Overflow::clip(),
+                        padding: UiRect::axes(Val::Auto, Val::Px(15.)),
                         ..default()
                     },
-                    background_color: Color::NONE.into(),
                     ..default()
                 },
                 View(model_entity),
@@ -511,34 +544,47 @@ fn display_todos(
         let todo_check_txt = commands
             .spawn((
                 TextBundle {
-                    text: Text::from_section(display_checked(checked), default()),
+                    #[cfg(feature = "debug")]
+                    background_color: Color::FUCHSIA.into(),
+                    text: Text::from_sections([
+                        TextSection::new("[", text_styles::todo()),
+                        TextSection::new("x", display_checked(checked)),
+                        TextSection::new("]", text_styles::todo()),
+                    ]),
                     ..default()
                 },
                 View(model_entity),
                 markers::TodoCheckmarkView,
             ))
             .id();
-        commands.entity(todo_check_btn).add_child(todo_check_txt);
-        let todo_btn = commands
+        let todo_text_btn = commands
             .spawn((
                 ButtonBundle {
+                    #[cfg(feature = "debug")]
+                    background_color: Color::GREEN.into(),
                     style: Style {
-                        width: Val::Px(200.),
+                        width: Val::Percent(100.),
                         height: Val::Px(40.),
-                        overflow: Overflow::clip(),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
                         ..default()
                     },
-                    background_color: Color::NONE.into(),
                     ..default()
                 },
                 View(model_entity),
                 markers::TodoTextView,
             ))
             .id();
-        let todo_txt = commands
+        let todo_text_txt = commands
             .spawn((
                 TextBundle {
-                    text: Text::from_section(&todo.0, default()),
+                    #[cfg(feature = "debug")]
+                    background_color: Color::GOLD.into(),
+                    style: Style {
+                        flex_grow: 1.0,
+                        ..default()
+                    },
+                    text: Text::from_section(&todo.0, text_styles::todo()),
                     ..default()
                 },
                 View(model_entity),
@@ -549,8 +595,11 @@ fn display_todos(
         let todo_delete_btn = commands
             .spawn((
                 ButtonBundle {
+                    #[cfg(feature = "debug")]
+                    background_color: Color::YELLOW.into(),
                     style: Style {
                         justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
                         width: Val::Px(40.),
                         height: Val::Px(40.),
                         margin: UiRect {
@@ -561,7 +610,6 @@ fn display_todos(
                         overflow: Overflow::clip(),
                         ..default()
                     },
-                    background_color: Color::NONE.into(),
                     ..default()
                 },
                 View(model_entity),
@@ -571,7 +619,9 @@ fn display_todos(
         let todo_delete_txt = commands
             .spawn((
                 TextBundle {
-                    text: Text::from_section("x", default()),
+                    #[cfg(feature = "debug")]
+                    background_color: Color::TURQUOISE.into(),
+                    text: Text::from_section("x", text_styles::destroy()),
                     ..default()
                 },
                 View(model_entity),
@@ -582,14 +632,16 @@ fn display_todos(
         // todo_list
         // - [todo_item]
         //   - todo_check_btn
-        //   - todo_btn
-        //      - todo_txt
+        //      - todo_check_txt
+        //   - todo_text_btn
+        //      - todo_text_txt
         //   - todo_delete_btn
         //      - todo_delete_txt
         commands.entity(todo_list).add_child(todo_item);
         commands.entity(todo_item).add_child(todo_check_btn);
-        commands.entity(todo_item).add_child(todo_btn);
-        commands.entity(todo_btn).add_child(todo_txt);
+        commands.entity(todo_check_btn).add_child(todo_check_txt);
+        commands.entity(todo_item).add_child(todo_text_btn);
+        commands.entity(todo_text_btn).add_child(todo_text_txt);
         commands.entity(todo_item).add_child(todo_delete_btn);
         commands.entity(todo_delete_btn).add_child(todo_delete_txt);
     }
@@ -620,20 +672,32 @@ fn update_displayed_todos_text(
 /// Whenever a model (todo.checked) is updated, views that depend on it are updated
 ///
 /// ModelTodoChecked -> View
-fn update_displayed_todos_checked(
+fn update_displayed_todos_text_checked(
     model_todo_checked: Query<&ModelTodoChecked, (Changed<ModelTodoChecked>, ModelOnly)>,
-    mut views: Query<(&mut Text, &View, Option<&markers::TodoCheckmarkView>), ViewOnly>,
+    mut views: Query<(&mut Text, &View), (ViewOnly, With<markers::TodoTextView>)>,
 ) {
     // outer loop, library-provided
-    for (mut text, view, maybe_checkbox) in views.iter_mut() {
+    for (mut text, view) in views.iter_mut() {
         if let Ok(checked) = model_todo_checked.get(view.0) {
             // inner logic, user-provided
-            // unfortunately, this particular system conflates both TodoCheckView and TodoTextView
-            // so this separation is not clear
-            text.sections[0].style.color = if checked.0 { Color::GRAY } else { Color::WHITE };
-            if maybe_checkbox.is_some() {
-                text.sections[0].value = display_checked(checked).to_string();
-            }
+            text.sections[0].style.color = if checked.0 {
+                colors::todo_list_item_completed_color()
+            } else {
+                colors::body_color()
+            };
+        }
+    }
+}
+
+fn update_displayed_todos_checkmark_checked(
+    model_todo_checked: Query<&ModelTodoChecked, (Changed<ModelTodoChecked>, ModelOnly)>,
+    mut views: Query<(&mut Text, &View), (ViewOnly, With<markers::TodoCheckmarkView>)>,
+) {
+    // outer loop, library-provided
+    for (mut text, view) in views.iter_mut() {
+        if let Ok(checked) = model_todo_checked.get(view.0) {
+            // inner logic, user-provided
+            text.sections[1].style = display_checked(checked);
         }
     }
 }
@@ -924,7 +988,7 @@ mod colors {
 mod text_styles {
     #![allow(unused)]
 
-    use bevy::prelude::{default, TextStyle};
+    use bevy::prelude::{default, Color, TextStyle};
 
     use crate::colors;
 
@@ -940,6 +1004,30 @@ mod text_styles {
         TextStyle {
             font_size: 24.0 * 1.2,
             color: colors::body_color(),
+            ..default()
+        }
+    }
+
+    pub fn checkmark() -> TextStyle {
+        TextStyle {
+            font_size: 24.0 * 1.2,
+            color: Color::LIME_GREEN,
+            ..default()
+        }
+    }
+
+    pub fn checkmark_complete() -> TextStyle {
+        TextStyle {
+            font_size: 24.0 * 1.2,
+            color: Color::NONE,
+            ..default()
+        }
+    }
+
+    pub fn destroy() -> TextStyle {
+        TextStyle {
+            font_size: 24.0 * 1.2,
+            color: colors::todo_list_item_destroy_color(),
             ..default()
         }
     }

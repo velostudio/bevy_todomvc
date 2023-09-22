@@ -7,3 +7,6 @@ edition = "2021"
 
 [dependencies]
 bevy = { version = "0.11.1", features = ["dynamic_linking"] }
+
+[features]
+debug = []
