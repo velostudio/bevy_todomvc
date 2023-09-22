@@ -46,7 +46,7 @@ fn setup(mut commands: Commands) {
 }
 
 fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAction>) {
-    let main = commands
+    let app_main = commands
         .spawn(NodeBundle {
             style: Style {
                 height: Val::Percent(100.),
@@ -55,12 +55,32 @@ fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAct
                 flex_direction: FlexDirection::Column,
                 ..default()
             },
+            background_color: colors::body_background().into(),
             ..default()
         })
         .id();
+
+    let app_title = commands
+        .spawn(TextBundle::from_section("todos", text_styles::title()))
+        .id();
+
+    let todo_main = commands
+        .spawn(NodeBundle {
+            style: Style {
+                width: Val::Px(550.),
+                align_items: AlignItems::Center,
+                flex_direction: FlexDirection::Column,
+                ..default()
+            },
+            background_color: Color::WHITE.into(),
+            ..default()
+        })
+        .id();
+
     let todo_input_container = commands
         .spawn((NodeBundle::default(), markers::TodoInputContainer))
         .id();
+
     let todo_list = commands
         .spawn((
             NodeBundle {
@@ -73,12 +93,105 @@ fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAct
             markers::TodoList,
         ))
         .id();
+    let todo_footer = commands
+        .spawn(NodeBundle {
+            style: Style {
+                flex_direction: FlexDirection::Row,
+                ..default()
+            },
+            ..default()
+        })
+        .id();
+    // TODO: needs to be referenced
+    let todo_items_left = commands
+        .spawn((
+            TextBundle::from_section("3 items left", text_styles::footer()),
+            markers::TodoItemsLeftView,
+        ))
+        .id();
 
-    // main
-    // - todo_input_container
-    // - todo_list
-    commands.entity(main).add_child(todo_input_container);
-    commands.entity(main).add_child(todo_list);
+    let todo_filters = commands
+        .spawn(NodeBundle {
+            style: Style {
+                flex_direction: FlexDirection::Row,
+                ..default()
+            },
+            ..default()
+        })
+        .id();
+
+    let todo_filter_all_btn = commands.spawn(ButtonBundle::default()).id();
+
+    let todo_filter_all_txt = commands
+        .spawn(TextBundle::from_section("All", text_styles::footer()))
+        .id();
+
+    let todo_filter_active_btn = commands.spawn(ButtonBundle::default()).id();
+
+    let todo_filter_active_txt = commands
+        .spawn(TextBundle::from_section("Active", text_styles::footer()))
+        .id();
+
+    let todo_filter_completed_btn = commands.spawn(ButtonBundle::default()).id();
+
+    let todo_filter_completed_txt = commands
+        .spawn(TextBundle::from_section("Completed", text_styles::footer()))
+        .id();
+
+    let todo_clear_completed_btn = commands.spawn(ButtonBundle::default()).id();
+
+    let todo_clear_completed_txt = commands
+        .spawn(TextBundle::from_section(
+            "Clear completed",
+            text_styles::footer(),
+        ))
+        .id();
+
+    // app_main
+    // - app_title
+    // - todo_main
+    //   - todo_input_container
+    //   - todo_list
+    //   - todo_footer
+    //     - todo_items_left
+    //     - todo_filters
+    //     - todo_filter_all_btn
+    //       - todo_filter_all_txt
+    //     - todo_filter_active_btn
+    //       - todo_filter_active_txt
+    //     - todo_filter_completed_btn
+    //       - todo_filter_completed_txt
+    //     - todo_clear_completed_btn
+    //       - todo_clear_completed_txt
+    commands.entity(app_main).add_child(app_title);
+    commands.entity(app_main).add_child(todo_main);
+    commands.entity(todo_main).add_child(todo_input_container);
+    commands.entity(todo_main).add_child(todo_list);
+    commands.entity(todo_main).add_child(todo_footer);
+    commands.entity(todo_footer).add_child(todo_items_left);
+    commands.entity(todo_footer).add_child(todo_filters);
+    commands.entity(todo_filters).add_child(todo_filter_all_btn);
+    commands
+        .entity(todo_filter_all_btn)
+        .add_child(todo_filter_all_txt);
+    commands
+        .entity(todo_filters)
+        .add_child(todo_filter_active_btn);
+    commands
+        .entity(todo_filter_active_btn)
+        .add_child(todo_filter_active_txt);
+    commands
+        .entity(todo_filters)
+        .add_child(todo_filter_completed_btn);
+    commands
+        .entity(todo_filter_completed_btn)
+        .add_child(todo_filter_completed_txt);
+    commands
+        .entity(todo_footer)
+        .add_child(todo_clear_completed_btn);
+    commands
+        .entity(todo_clear_completed_btn)
+        .add_child(todo_clear_completed_txt);
 
     input_actions.send(ModelInputAction::Create("".to_string()));
 }
@@ -304,7 +417,7 @@ fn display_text_input(
                         overflow: Overflow::clip(),
                         align_items: AlignItems::Center,
                         margin: UiRect::all(Val::Px(10.)),
-                        width: Val::Px(200.),
+                        min_width: Val::Percent(100.),
                         height: Val::Px(40.),
                         border: UiRect::all(Val::Px(4.)),
                         ..default()
@@ -319,7 +432,7 @@ fn display_text_input(
         let todo_input_text = commands
             .spawn((
                 TextBundle {
-                    text: Text::from_section(input.0.clone(), default()),
+                    text: Text::from_section(input.0.clone(), text_styles::todo()),
                     ..default()
                 },
                 View(model_entity),
