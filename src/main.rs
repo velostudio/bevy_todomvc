@@ -41,27 +41,6 @@ pub struct Focus(pub Option<Entity>);
 #[derive(Event)]
 struct SetFocus(Option<Entity>);
 
-#[derive(Component)]
-struct TodoInputContainer;
-
-#[derive(Component)]
-struct TodoList;
-
-#[derive(Component)]
-struct TodoInput;
-
-#[derive(Component)]
-struct TodoRootView;
-
-#[derive(Component)]
-struct TodoTextView;
-
-#[derive(Component)]
-struct TodoCheckmarkView;
-
-#[derive(Component)]
-struct TodoDeleterView;
-
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
 }
@@ -80,7 +59,7 @@ fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAct
         })
         .id();
     let todo_input_container = commands
-        .spawn((NodeBundle::default(), TodoInputContainer))
+        .spawn((NodeBundle::default(), markers::TodoInputContainer))
         .id();
     let todo_list = commands
         .spawn((
@@ -108,7 +87,7 @@ fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAct
 fn handle_deleter_interaction(
     mut delete_interaction_q: Query<
         (&Interaction, &View),
-        (Changed<Interaction>, With<TodoDeleterView>),
+        (Changed<Interaction>, With<markers::TodoDeleterView>),
     >,
     mut actions: EventWriter<ModelTodoAction>,
     mut set_focus: EventWriter<SetFocus>,
@@ -125,9 +104,9 @@ fn handle_deleter_interaction(
 fn handle_text_interaction(
     mut check_interaction_q: Query<
         (&Interaction, Entity),
-        (Changed<Interaction>, With<TodoTextView>),
+        (Changed<Interaction>, With<markers::TodoTextView>),
     >,
-    mut todo_text_q: Query<(Entity, &Parent), (With<Text>, With<TodoTextView>)>,
+    mut todo_text_q: Query<(Entity, &Parent), (With<Text>, With<markers::TodoTextView>)>,
     mut set_focus: EventWriter<SetFocus>,
 ) {
     for (interaction, clicked_entity) in check_interaction_q.iter_mut() {
@@ -143,8 +122,11 @@ fn handle_text_interaction(
 
 /// Interaction -> Event<SetFocus>
 fn handle_input_interaction(
-    mut check_interaction_q: Query<(&Interaction, Entity), (Changed<Interaction>, With<TodoInput>)>,
-    todo_text_q: Query<(Entity, &Parent), (With<Text>, With<TodoInput>)>,
+    mut check_interaction_q: Query<
+        (&Interaction, Entity),
+        (Changed<Interaction>, With<markers::TodoInput>),
+    >,
+    todo_text_q: Query<(Entity, &Parent), (With<Text>, With<markers::TodoInput>)>,
     mut set_focus: EventWriter<SetFocus>,
 ) {
     for (interaction, clicked_entity) in check_interaction_q.iter_mut() {
@@ -162,7 +144,7 @@ fn handle_input_interaction(
 fn handle_checkmark_interaction(
     mut check_interaction_q: Query<
         (&Interaction, &View),
-        (Changed<Interaction>, With<TodoCheckmarkView>),
+        (Changed<Interaction>, With<markers::TodoCheckmarkView>),
     >,
     model: Query<&ModelTodoChecked, ModelOnly>,
     mut actions: EventWriter<ModelTodoAction>,
@@ -182,7 +164,7 @@ fn handle_checkmark_interaction(
 /// But this system also directly updates the `Text` which it probably shouldn't (consider splitting)
 fn handle_enter(
     mut actions: EventWriter<ModelTodoAction>,
-    mut todo_input_q: Query<&mut Text, With<TodoInput>>,
+    mut todo_input_q: Query<&mut Text, With<markers::TodoInput>>,
     keys: Res<Input<KeyCode>>,
     focus: Res<Focus>,
 ) {
@@ -216,8 +198,11 @@ fn handle_focus(mut set_focus_events: EventReader<SetFocus>, mut focus: ResMut<F
 fn handle_typing(
     mut evr_char: EventReader<ReceivedCharacter>,
     focus: Res<Focus>,
-    todo_text_q: Query<(&Text, &View), With<TodoTextView>>,
-    mut todo_input_q: Query<(&Text, &View), (With<TodoInput>, Without<TodoTextView>)>,
+    todo_text_q: Query<(&Text, &View), With<markers::TodoTextView>>,
+    mut todo_input_q: Query<
+        (&Text, &View),
+        (With<markers::TodoInput>, Without<markers::TodoTextView>),
+    >,
     mut todo_actions: EventWriter<ModelTodoAction>,
     mut input_actions: EventWriter<ModelInputAction>,
 ) {
@@ -305,7 +290,7 @@ fn update_input_model(
 /// ModelInputText -> View + Event<SetFocus>
 fn display_text_input(
     inputs: Query<(ModelInputEntity, &ModelInputText), (Added<ModelInputText>, ModelOnly)>,
-    todo_input_container: Query<Entity, With<TodoInputContainer>>,
+    todo_input_container: Query<Entity, With<markers::TodoInputContainer>>,
     mut commands: Commands,
     mut set_focus: EventWriter<SetFocus>,
 ) {
@@ -328,7 +313,7 @@ fn display_text_input(
                     ..default()
                 },
                 View(model_entity),
-                TodoInput,
+                markers::TodoInput,
             ))
             .id();
         let todo_input_text = commands
@@ -338,7 +323,7 @@ fn display_text_input(
                     ..default()
                 },
                 View(model_entity),
-                TodoInput,
+                markers::TodoInput,
             ))
             .id();
 
@@ -372,7 +357,7 @@ fn display_todos(
         (ModelTodoEntity, &ModelTodoText, &ModelTodoChecked),
         (Added<ModelTodoText>, Added<ModelTodoChecked>, ModelOnly),
     >,
-    todo_list_q: Query<Entity, With<TodoList>>,
+    todo_list_q: Query<Entity, With<markers::TodoList>>,
     mut commands: Commands,
 ) {
     // an outer reference
@@ -390,7 +375,7 @@ fn display_todos(
                     ..default()
                 },
                 View(model_entity),
-                TodoRootView,
+                markers::TodoRootView,
             ))
             .id();
         let todo_check_btn = commands
@@ -407,7 +392,7 @@ fn display_todos(
                     ..default()
                 },
                 View(model_entity),
-                TodoCheckmarkView,
+                markers::TodoCheckmarkView,
             ))
             .id();
         let todo_check_txt = commands
@@ -417,7 +402,7 @@ fn display_todos(
                     ..default()
                 },
                 View(model_entity),
-                TodoCheckmarkView,
+                markers::TodoCheckmarkView,
             ))
             .id();
         commands.entity(todo_check_btn).add_child(todo_check_txt);
@@ -434,7 +419,7 @@ fn display_todos(
                     ..default()
                 },
                 View(model_entity),
-                TodoTextView,
+                markers::TodoTextView,
             ))
             .id();
         let todo_txt = commands
@@ -444,7 +429,7 @@ fn display_todos(
                     ..default()
                 },
                 View(model_entity),
-                TodoTextView,
+                markers::TodoTextView,
             ))
             .id();
 
@@ -467,7 +452,7 @@ fn display_todos(
                     ..default()
                 },
                 View(model_entity),
-                TodoDeleterView,
+                markers::TodoDeleterView,
             ))
             .id();
         let todo_delete_txt = commands
@@ -502,7 +487,7 @@ fn display_todos(
 /// ModelTodoText -> View
 fn update_displayed_todos_text(
     todos_text: Query<&ModelTodoText, (Changed<ModelTodoText>, ModelOnly)>,
-    mut views: Query<(&mut Text, &View), (With<TodoTextView>, ViewOnly)>,
+    mut views: Query<(&mut Text, &View), (With<markers::TodoTextView>, ViewOnly)>,
 ) {
     // outer loop, library-provided
     for (mut text, view) in views.iter_mut() {
@@ -524,7 +509,7 @@ fn update_displayed_todos_text(
 /// ModelTodoChecked -> View
 fn update_displayed_todos_checked(
     model_todo_checked: Query<&ModelTodoChecked, (Changed<ModelTodoChecked>, ModelOnly)>,
-    mut views: Query<(&mut Text, &View, Option<&TodoCheckmarkView>), ViewOnly>,
+    mut views: Query<(&mut Text, &View, Option<&markers::TodoCheckmarkView>), ViewOnly>,
 ) {
     // outer loop, library-provided
     for (mut text, view, maybe_checkbox) in views.iter_mut() {
@@ -545,7 +530,7 @@ fn update_displayed_todos_checked(
 /// ModelInputText -> View
 fn update_displayed_input_text(
     model_input_text: Query<&ModelInputText, (Changed<ModelInputText>, ModelOnly)>,
-    mut views: Query<(&mut Text, &View), (With<TodoInput>, ViewOnly)>,
+    mut views: Query<(&mut Text, &View), (With<markers::TodoInput>, ViewOnly)>,
 ) {
     // outer loop, library-provided
     for (mut text, view) in views.iter_mut() {
@@ -561,7 +546,7 @@ fn update_displayed_input_text(
 /// Model -> View
 fn remove_displayed_todos(
     mut removed: RemovedComponents<Model>,
-    views: Query<(Entity, &View), (ViewOnly, With<TodoRootView>)>,
+    views: Query<(Entity, &View), (ViewOnly, With<markers::TodoRootView>)>,
     mut commands: Commands,
 ) {
     let models_to_views = views
@@ -853,4 +838,47 @@ mod text_styles {
             ..default()
         }
     }
+}
+
+mod markers {
+    use bevy::prelude::Component;
+
+    #[derive(Component)]
+    pub struct TodoInputContainer;
+
+    #[derive(Component)]
+    pub struct TodoList;
+
+    #[derive(Component)]
+    pub struct TodoInput;
+
+    #[derive(Component)]
+    pub struct TodoRootView;
+
+    #[derive(Component)]
+    pub struct TodoTextView;
+
+    #[derive(Component)]
+    pub struct TodoCheckmarkView;
+
+    #[derive(Component)]
+    pub struct TodoDeleterView;
+
+    #[derive(Component)]
+    pub struct TodoItemsLeftView;
+
+    #[derive(Component)]
+    pub struct TodoFilters;
+
+    #[derive(Component)]
+    pub struct TodoClearCompleted;
+
+    #[derive(Component)]
+    pub struct TodoFilterAll;
+
+    #[derive(Component)]
+    pub struct TodoFilterActive;
+
+    #[derive(Component)]
+    pub struct TodoFilterCompleted;
 }
