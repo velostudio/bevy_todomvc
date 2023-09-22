@@ -736,6 +736,7 @@ struct ModelInputText(String);
 /// }
 /// ```
 mod colors {
+    #![allow(unused)]
     use bevy::prelude::Color;
 
     pub fn body_background() -> Color {
