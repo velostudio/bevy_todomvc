@@ -669,3 +669,155 @@ enum ModelInputAction {
 /// See [`ModelInputAction`].
 #[derive(Component)]
 struct ModelInputText(String);
+
+/// https://todomvc.com/examples/vanillajs/node_modules/todomvc-app-css/index.css
+///
+/// ```css
+/// body {
+///     background: #f5f5f5;
+///     color: #4d4d4d;
+/// }
+/// .todoapp {
+///     background: #fff;
+///     box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.2),
+///                 0 25px 50px 0 rgba(0, 0, 0, 0.1);
+/// }
+/// .todoapp input::input-placeholder {
+///     color: #e6e6e6;
+/// }
+/// .todoapp h1 {
+///     color: rgba(175, 47, 47, 0.15);
+/// }
+/// .new-todo {
+///     background: rgba(0, 0, 0, 0.003);
+///     box-shadow: inset 0 -2px 1px rgba(0,0,0,0.03);
+/// }
+/// .main {
+///     border-top: 1px solid #e6e6e6;
+/// }
+/// .toggle-all + label:before {
+///     color: #e6e6e6;
+/// }
+/// .toggle-all:checked + label:before {
+///     color: #737373;
+/// }
+/// .todo-list li {
+///     border-bottom: 1px solid #ededed;
+/// }
+/// .todo-list li.completed label {
+///     color: #d9d9d9;
+/// }
+/// .todo-list li .destroy {
+///     color: #cc9a9a;
+/// }
+/// .todo-list li .destroy:hover {
+///     color: #af5b5e;
+/// }
+/// .footer {
+///     color: #777;
+///     border-top: 1px solid #e6e6e6;
+/// }
+/// .footer:before {
+///     box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2),
+///                 0 8px 0 -3px #f6f6f6,
+///                 0 9px 1px -3px rgba(0, 0, 0, 0.2),
+///                 0 16px 0 -6px #f6f6f6,
+///                 0 17px 2px -6px rgba(0, 0, 0, 0.2);
+/// }
+/// .info {
+///     color: #bfbfbf;
+///     text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+/// }
+/// .filters li a:hover {
+///     border-color: rgba(175, 47, 47, 0.1);
+/// }
+/// .filters li a.selected {
+///     border-color: rgba(175, 47, 47, 0.2);
+/// }
+/// ```
+mod colors {
+    use bevy::prelude::Color;
+
+    pub fn body_background() -> Color {
+        hex("#f5f5f5")
+    }
+    pub fn body_color() -> Color {
+        hex("#4d4d4d")
+    }
+    pub fn todoapp_background() -> Color {
+        hex("#fff")
+    }
+    pub fn todoapp_boxshadow_0() -> Color {
+        rgba(0, 0, 0, 0.2)
+    }
+    pub fn todoapp_boxshadow_1() -> Color {
+        rgba(0, 0, 0, 0.1)
+    }
+    pub fn todoapp_inputplaceholder_color() -> Color {
+        hex("#e6e6e6")
+    }
+    pub fn todoapp_h1_color() -> Color {
+        rgba(175, 47, 47, 0.15)
+    }
+    pub fn new_todo_background() -> Color {
+        rgba(0, 0, 0, 0.003)
+    }
+    pub fn new_todo_boxshadow_0() -> Color {
+        rgba(0, 0, 0, 0.03)
+    }
+    pub fn main_border_top() -> Color {
+        hex("#e6e6e6")
+    }
+    pub fn toggle_all_checked() -> Color {
+        hex("#737373")
+    }
+    pub fn toggle_all_checked_background() -> Color {
+        hex("#e6e6e6")
+    }
+    pub fn todo_list_item_border_bottom() -> Color {
+        hex("#ededed")
+    }
+    pub fn todo_list_item_completed_color() -> Color {
+        hex("#d9d9d9")
+    }
+    pub fn todo_list_item_destroy_color() -> Color {
+        hex("#cc9a9a")
+    }
+    pub fn todo_list_item_destroy_hover_color() -> Color {
+        hex("#af5b5e")
+    }
+    pub fn footer_color() -> Color {
+        hex("#777")
+    }
+    pub fn footer_bordertop() -> Color {
+        hex("#e6e6e6")
+    }
+    pub fn footer_before_boxshadow_0() -> Color {
+        rgba(0, 0, 0, 0.2)
+    }
+    pub fn footer_before_boxshadow_1() -> Color {
+        hex("#f6f6f6")
+    }
+    pub fn info_color() -> Color {
+        hex("#bfbfbf")
+    }
+    pub fn info_textshadow() -> Color {
+        rgba(255, 255, 255, 0.5)
+    }
+    pub fn filters_li_a_hover() -> Color {
+        rgba(175, 47, 47, 0.1)
+    }
+    pub fn filters_li_a_selected() -> Color {
+        rgba(175, 47, 47, 0.2)
+    }
+
+    fn rgb(r: u8, g: u8, b: u8) -> Color {
+        rgba(r, g, b, 1.0)
+    }
+    fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
+        Color::rgba(r as f32 / 256.0, g as f32 / 256.0, b as f32 / 256.0, a)
+    }
+    fn hex(s: &str) -> Color {
+        Color::hex(s).unwrap()
+    }
+}
