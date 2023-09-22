@@ -1,19 +1,25 @@
 #![allow(clippy::type_complexity)]
 
-use bevy::prelude::*;
+use bevy::{prelude::*, window::PrimaryWindow};
+use bevy_cosmic_edit::{
+    Attrs, AttrsOwned, CosmicAttrs, CosmicColor, CosmicEditPlugin, CosmicEditUiBundle,
+    CosmicEditor, CosmicFontSystem, CosmicMaxChars, CosmicMaxLines, CosmicMetrics, CosmicText,
+    CosmicTextChanged, Focus, ReadOnly,
+};
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_plugins(CosmicEditPlugin::default())
         .add_event::<ModelTodoAction>()
         .add_event::<ModelInputAction>()
         .add_event::<SetFocus>()
         .init_resource::<Focus>()
         .add_systems(Startup, setup)
         .add_systems(Startup, setup_ui)
-        .add_systems(PreUpdate, handle_typing.before(handle_focus))
+        .add_systems(PreUpdate, handle_cosmic_change.before(handle_focus))
         .add_systems(PreUpdate, handle_deleter_interaction.before(handle_focus))
-        .add_systems(PreUpdate, handle_enter.before(handle_focus))
+        .add_systems(PreUpdate, handle_create_new_todo.before(handle_focus))
         .add_systems(PreUpdate, handle_checkmark_interaction.before(handle_focus))
         .add_systems(PreUpdate, handle_text_interaction.before(handle_focus))
         .add_systems(PreUpdate, handle_input_interaction.before(handle_focus))
@@ -34,9 +40,6 @@ fn main() {
         .add_systems(PostUpdate, remove_displayed_todos)
         .run();
 }
-
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct Focus(pub Option<Entity>);
 
 #[derive(Event)]
 struct SetFocus(Option<Entity>);
@@ -127,16 +130,13 @@ fn handle_text_interaction(
         (&Interaction, Entity),
         (Changed<Interaction>, With<TodoTextView>),
     >,
-    mut todo_text_q: Query<(Entity, &Parent), (With<Text>, With<TodoTextView>)>,
     mut set_focus: EventWriter<SetFocus>,
+    mut commands: Commands,
 ) {
     for (interaction, clicked_entity) in check_interaction_q.iter_mut() {
         if *interaction == Interaction::Pressed {
-            for (entity, parent) in todo_text_q.iter_mut() {
-                if parent.get() == clicked_entity {
-                    set_focus.send(SetFocus(Some(entity)));
-                }
-            }
+            set_focus.send(SetFocus(Some(clicked_entity)));
+            commands.entity(clicked_entity).remove::<ReadOnly>();
         }
     }
 }
@@ -144,16 +144,11 @@ fn handle_text_interaction(
 /// Interaction -> Event<SetFocus>
 fn handle_input_interaction(
     mut check_interaction_q: Query<(&Interaction, Entity), (Changed<Interaction>, With<TodoInput>)>,
-    todo_text_q: Query<(Entity, &Parent), (With<Text>, With<TodoInput>)>,
     mut set_focus: EventWriter<SetFocus>,
 ) {
     for (interaction, clicked_entity) in check_interaction_q.iter_mut() {
         if *interaction == Interaction::Pressed {
-            for (entity, parent) in todo_text_q.iter() {
-                if parent.get() == clicked_entity {
-                    set_focus.send(SetFocus(Some(entity)));
-                }
-            }
+            set_focus.send(SetFocus(Some(clicked_entity)));
         }
     }
 }
@@ -178,11 +173,9 @@ fn handle_checkmark_interaction(
 }
 
 /// Input<KeyCode> + Res<Focus> -> Event<ModelTodoAction>
-///
-/// But this system also directly updates the `Text` which it probably shouldn't (consider splitting)
-fn handle_enter(
-    mut actions: EventWriter<ModelTodoAction>,
-    mut todo_input_q: Query<&mut Text, With<TodoInput>>,
+fn handle_create_new_todo(
+    mut todo_actions: EventWriter<ModelTodoAction>,
+    mut todo_input_q: Query<&CosmicEditor, With<TodoInput>>,
     keys: Res<Input<KeyCode>>,
     focus: Res<Focus>,
 ) {
@@ -190,11 +183,8 @@ fn handle_enter(
         return;
     };
     if keys.just_pressed(KeyCode::Return) {
-        if let Ok(mut todo_input_text) = todo_input_q.get_mut(focus) {
-            actions.send(ModelTodoAction::Create(
-                todo_input_text.sections[0].value.clone(),
-            ));
-            todo_input_text.sections[0].value = "".to_string();
+        if let Ok(editor) = todo_input_q.get_mut(focus) {
+            todo_actions.send(ModelTodoAction::Create(editor.get_text()));
         }
     }
 }
@@ -210,35 +200,22 @@ fn handle_focus(mut set_focus_events: EventReader<SetFocus>, mut focus: ResMut<F
 ///
 /// We want the equivalent of JS `input.addEventListener('oninput', (e) => { model.value = e.target.value })`
 ///
-/// Event<ReceivedCharacter> -> Event<ModelInputAction> + Event<ModelTodoAction>
+/// Event<CosmicTextChanged> -> Event<ModelInputAction> + Event<ModelTodoAction>
 ///
 /// But this system also directly updates the `Text` which it probably shouldn't (consider splitting)
-fn handle_typing(
-    mut evr_char: EventReader<ReceivedCharacter>,
-    focus: Res<Focus>,
-    todo_text_q: Query<(&Text, &View), With<TodoTextView>>,
-    mut todo_input_q: Query<(&Text, &View), (With<TodoInput>, Without<TodoTextView>)>,
+fn handle_cosmic_change(
+    mut evr_cosmic: EventReader<CosmicTextChanged>,
+    todo_text_q: Query<&View, With<TodoTextView>>,
+    mut todo_input_q: Query<&View, (With<TodoInput>, Without<TodoTextView>)>,
     mut todo_actions: EventWriter<ModelTodoAction>,
     mut input_actions: EventWriter<ModelInputAction>,
 ) {
-    let Some(focus) = **focus else {
-        return;
-    };
-    for ev in evr_char.iter() {
-        if !ev.char.is_control() {
-            if let Ok((text, view)) = todo_input_q.get_mut(focus) {
-                input_actions.send(ModelInputAction::UpdateText(
-                    view.0,
-                    format!("{}{}", text.sections[0].value, ev.char),
-                ));
-            }
-
-            if let Ok((text, view)) = todo_text_q.get(focus) {
-                todo_actions.send(ModelTodoAction::UpdateText(
-                    view.0,
-                    format!("{}{}", text.sections[0].value, ev.char),
-                ));
-            }
+    for ev in evr_cosmic.iter() {
+        if let Ok(view) = todo_text_q.get(ev.0 .0) {
+            todo_actions.send(ModelTodoAction::UpdateText(view.0, ev.0 .1.clone()));
+        }
+        if let Ok(view) = todo_input_q.get_mut(ev.0 .0) {
+            input_actions.send(ModelInputAction::UpdateText(view.0, ev.0 .1.clone()));
         }
     }
 }
@@ -299,11 +276,15 @@ fn display_text_input(
     todo_input_container: Query<Entity, With<TodoInputContainer>>,
     mut commands: Commands,
     mut set_focus: EventWriter<SetFocus>,
+    windows: Query<&Window, With<PrimaryWindow>>,
 ) {
     for (model_entity, input) in inputs.iter() {
+        let attrs = AttrsOwned::new(Attrs::new().color(CosmicColor::rgb(255, 255, 255)));
+        let primary_window = windows.single();
         let todo_input = commands
             .spawn((
-                ButtonBundle {
+                CosmicEditUiBundle {
+                    background_color: Color::rgb(0.64, 0.64, 0.64).into(),
                     border_color: Color::GREEN.into(),
                     style: Style {
                         justify_content: JustifyContent::Center,
@@ -315,17 +296,15 @@ fn display_text_input(
                         border: UiRect::all(Val::Px(4.)),
                         ..default()
                     },
-                    background_color: Color::NONE.into(),
-                    ..default()
-                },
-                View(model_entity),
-                TodoInput,
-            ))
-            .id();
-        let todo_input_text = commands
-            .spawn((
-                TextBundle {
-                    text: Text::from_section(input.0.clone(), default()),
+                    cosmic_attrs: CosmicAttrs(attrs.clone()),
+                    cosmic_metrics: CosmicMetrics {
+                        font_size: 14.,
+                        line_height: 18.,
+                        scale_factor: primary_window.scale_factor() as f32,
+                    },
+                    max_lines: CosmicMaxLines(1),
+                    max_chars: CosmicMaxChars(20),
+                    text: CosmicText::OneStyle(input.0.clone()),
                     ..default()
                 },
                 View(model_entity),
@@ -335,13 +314,11 @@ fn display_text_input(
 
         // - todo_input_container
         //   - todo_input
-        //      - todo_input_text
         commands
             .entity(todo_input_container.single())
             .add_child(todo_input);
-        commands.entity(todo_input).add_child(todo_input_text);
 
-        set_focus.send(SetFocus(Some(todo_input_text)));
+        set_focus.send(SetFocus(Some(todo_input)));
     }
 }
 
@@ -365,6 +342,7 @@ fn display_todos(
     >,
     todo_list_q: Query<Entity, With<TodoList>>,
     mut commands: Commands,
+    windows: Query<&Window, With<PrimaryWindow>>,
 ) {
     // an outer reference
     let todo_list = todo_list_q.single();
@@ -375,6 +353,8 @@ fn display_todos(
             .spawn((
                 NodeBundle {
                     style: Style {
+                        justify_content: JustifyContent::Center,
+                        align_content: AlignContent::Center,
                         margin: UiRect::all(Val::Px(5.)),
                         ..default()
                     },
@@ -390,8 +370,8 @@ fn display_todos(
                     style: Style {
                         width: Val::Px(40.),
                         height: Val::Px(40.),
-                        justify_content: JustifyContent::Center,
                         overflow: Overflow::clip(),
+                        align_items: AlignItems::Center,
                         ..default()
                     },
                     background_color: Color::NONE.into(),
@@ -412,29 +392,34 @@ fn display_todos(
             ))
             .id();
         commands.entity(todo_check_btn).add_child(todo_check_txt);
+
+        let attrs = AttrsOwned::new(Attrs::new().color(CosmicColor::rgb(255, 255, 255)));
+        let primary_window = windows.single();
         let todo_btn = commands
             .spawn((
-                ButtonBundle {
+                CosmicEditUiBundle {
+                    background_color: Color::rgb(0.64, 0.64, 0.64).into(),
+                    border_color: Color::GRAY.into(),
                     style: Style {
-                        width: Val::Px(200.),
+                        border: UiRect::all(Val::Px(2.)),
+                        width: Val::Px(300.),
                         height: Val::Px(40.),
                         overflow: Overflow::clip(),
                         ..default()
                     },
-                    background_color: Color::NONE.into(),
+                    cosmic_attrs: CosmicAttrs(attrs.clone()),
+                    cosmic_metrics: CosmicMetrics {
+                        font_size: 14.,
+                        line_height: 18.,
+                        scale_factor: primary_window.scale_factor() as f32,
+                    },
+                    max_lines: CosmicMaxLines(1),
+                    max_chars: CosmicMaxChars(20),
+                    text: CosmicText::OneStyle(todo.0.clone()),
                     ..default()
                 },
                 View(model_entity),
-                TodoTextView,
-            ))
-            .id();
-        let todo_txt = commands
-            .spawn((
-                TextBundle {
-                    text: Text::from_section(&todo.0, default()),
-                    ..default()
-                },
-                View(model_entity),
+                ReadOnly,
                 TodoTextView,
             ))
             .id();
@@ -443,15 +428,10 @@ fn display_todos(
             .spawn((
                 ButtonBundle {
                     style: Style {
-                        justify_content: JustifyContent::Center,
                         width: Val::Px(40.),
                         height: Val::Px(40.),
-                        margin: UiRect {
-                            left: Val::Px(10.),
-                            right: Val::Px(10.),
-                            ..default()
-                        },
                         overflow: Overflow::clip(),
+                        align_items: AlignItems::Center,
                         ..default()
                     },
                     background_color: Color::NONE.into(),
@@ -464,7 +444,7 @@ fn display_todos(
         let todo_delete_txt = commands
             .spawn((
                 TextBundle {
-                    text: Text::from_section("x", default()),
+                    text: Text::from_section(" x ", default()),
                     ..default()
                 },
                 View(model_entity),
@@ -476,13 +456,11 @@ fn display_todos(
         // - [todo_item]
         //   - todo_check_btn
         //   - todo_btn
-        //      - todo_txt
         //   - todo_delete_btn
         //      - todo_delete_txt
         commands.entity(todo_list).add_child(todo_item);
         commands.entity(todo_item).add_child(todo_check_btn);
         commands.entity(todo_item).add_child(todo_btn);
-        commands.entity(todo_btn).add_child(todo_txt);
         commands.entity(todo_item).add_child(todo_delete_btn);
         commands.entity(todo_delete_btn).add_child(todo_delete_txt);
     }
@@ -493,13 +471,17 @@ fn display_todos(
 /// ModelTodoText -> View
 fn update_displayed_todos_text(
     todos_text: Query<&ModelTodoText, (Changed<ModelTodoText>, ModelOnly)>,
-    mut views: Query<(&mut Text, &View), (With<TodoTextView>, ViewOnly)>,
+    mut views: Query<(&View, &mut CosmicEditor, &CosmicAttrs), (With<TodoTextView>, ViewOnly)>,
+    mut font_system: ResMut<CosmicFontSystem>,
 ) {
     // outer loop, library-provided
-    for (mut text, view) in views.iter_mut() {
+    for (view, mut editor, attrs) in views.iter_mut() {
         if let Ok(todo) = todos_text.get(view.0) {
-            // inner logic, user-provided
-            text.sections[0].value = todo.0.clone();
+            editor.set_text(
+                CosmicText::OneStyle(todo.0.clone()),
+                attrs.0.clone(),
+                &mut font_system.0,
+            );
         }
     }
 }
@@ -512,21 +494,26 @@ fn update_displayed_todos_text(
 ///
 /// Whenever a model (todo.checked) is updated, views that depend on it are updated
 ///
-/// ModelTodoChecked -> View
+/// ModelTodoChecked -> TodoTextView + TodoCheckmarkView
 fn update_displayed_todos_checked(
     model_todo_checked: Query<&ModelTodoChecked, (Changed<ModelTodoChecked>, ModelOnly)>,
-    mut views: Query<(&mut Text, &View, Option<&TodoCheckmarkView>), ViewOnly>,
+    mut todo_views: Query<(&mut BackgroundColor, &View), (With<TodoTextView>, ViewOnly)>,
+    mut checkmark_views: Query<(&mut Text, &View), (With<TodoCheckmarkView>, ViewOnly)>,
 ) {
     // outer loop, library-provided
-    for (mut text, view, maybe_checkbox) in views.iter_mut() {
+    for (mut text, view) in checkmark_views.iter_mut() {
         if let Ok(checked) = model_todo_checked.get(view.0) {
-            // inner logic, user-provided
-            // unfortunately, this particular system conflates both TodoCheckView and TodoTextView
-            // so this separation is not clear
-            text.sections[0].style.color = if checked.0 { Color::GRAY } else { Color::WHITE };
-            if maybe_checkbox.is_some() {
-                text.sections[0].value = display_checked(checked).to_string();
-            }
+            text.sections[0].value = display_checked(checked).to_string();
+        }
+    }
+    // outer loop, library-provided
+    for (mut bg_color, view) in todo_views.iter_mut() {
+        if let Ok(checked) = model_todo_checked.get(view.0) {
+            bg_color.0 = if checked.0 {
+                Color::DARK_GRAY.into()
+            } else {
+                Color::rgb(0.64, 0.64, 0.64).into()
+            };
         }
     }
 }
@@ -535,14 +522,18 @@ fn update_displayed_todos_checked(
 ///
 /// ModelInputText -> View
 fn update_displayed_input_text(
-    model_input_text: Query<&ModelInputText, (Changed<ModelInputText>, ModelOnly)>,
-    mut views: Query<(&mut Text, &View), (With<TodoInput>, ViewOnly)>,
+    todos_text: Query<&ModelInputText, (Changed<ModelInputText>, ModelOnly)>,
+    mut views: Query<(&View, &mut CosmicEditor, &CosmicAttrs), (With<TodoInput>, ViewOnly)>,
+    mut font_system: ResMut<CosmicFontSystem>,
 ) {
     // outer loop, library-provided
-    for (mut text, view) in views.iter_mut() {
-        if let Ok(todo) = model_input_text.get(view.0) {
-            // inner logic, user-provided
-            text.sections[0].value = todo.0.clone();
+    for (view, mut editor, attrs) in views.iter_mut() {
+        if let Ok(todo) = todos_text.get(view.0) {
+            editor.set_text(
+                CosmicText::OneStyle(todo.0.clone()),
+                attrs.0.clone(),
+                &mut font_system.0,
+            );
         }
     }
 }
