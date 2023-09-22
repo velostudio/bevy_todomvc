@@ -174,10 +174,10 @@ fn handle_checkmark_interaction(
 
 /// Input<KeyCode> + Res<Focus> -> Event<ModelTodoAction>
 fn handle_create_new_todo(
-    mut todo_actions: EventWriter<ModelTodoAction>,
-    mut todo_input_q: Query<&CosmicEditor, With<TodoInput>>,
     keys: Res<Input<KeyCode>>,
     focus: Res<Focus>,
+    mut todo_actions: EventWriter<ModelTodoAction>,
+    mut todo_input_q: Query<&CosmicEditor, With<TodoInput>>,
 ) {
     let Some(focus) = **focus else {
         return;
