@@ -25,7 +25,11 @@ fn main() {
         .add_systems(Update, update_displayed_todos_text.after(update_todo_model))
         .add_systems(
             Update,
-            update_displayed_todos_checked.after(update_todo_model),
+            update_displayed_todos_text_checked.after(update_todo_model),
+        )
+        .add_systems(
+            Update,
+            update_displayed_todos_checkmark_checked.after(update_todo_model),
         )
         .add_systems(
             Update,
@@ -41,33 +45,12 @@ pub struct Focus(pub Option<Entity>);
 #[derive(Event)]
 struct SetFocus(Option<Entity>);
 
-#[derive(Component)]
-struct TodoInputContainer;
-
-#[derive(Component)]
-struct TodoList;
-
-#[derive(Component)]
-struct TodoInput;
-
-#[derive(Component)]
-struct TodoRootView;
-
-#[derive(Component)]
-struct TodoTextView;
-
-#[derive(Component)]
-struct TodoCheckmarkView;
-
-#[derive(Component)]
-struct TodoDeleterView;
-
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
 }
 
 fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAction>) {
-    let main = commands
+    let app_main = commands
         .spawn(NodeBundle {
             style: Style {
                 height: Val::Percent(100.),
@@ -76,30 +59,163 @@ fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAct
                 flex_direction: FlexDirection::Column,
                 ..default()
             },
+            background_color: colors::body_background().into(),
             ..default()
         })
         .id();
-    let todo_input_container = commands
-        .spawn((NodeBundle::default(), TodoInputContainer))
+
+    let app_title = commands
+        .spawn(TextBundle::from_section("todos", text_styles::title()))
         .id();
+
+    let todo_main = commands
+        .spawn(NodeBundle {
+            style: Style {
+                width: Val::Px(550.),
+                align_items: AlignItems::Center,
+                flex_direction: FlexDirection::Column,
+                ..default()
+            },
+            background_color: Color::WHITE.into(),
+            ..default()
+        })
+        .id();
+
+    let todo_input_container = commands
+        .spawn((NodeBundle::default(), markers::TodoInputContainer))
+        .id();
+
     let todo_list = commands
         .spawn((
             NodeBundle {
                 style: Style {
                     flex_direction: FlexDirection::Column,
+                    width: Val::Percent(100.0),
+                    border: UiRect::top(Val::Px(1.0)),
                     ..default()
                 },
+                border_color: colors::main_border_top().into(),
                 ..default()
             },
-            TodoList,
+            markers::TodoList,
+        ))
+        .id();
+    let todo_footer = commands
+        .spawn(NodeBundle {
+            style: Style {
+                flex_direction: FlexDirection::Row,
+                justify_content: JustifyContent::SpaceBetween,
+                align_items: AlignItems::Center,
+                width: Val::Percent(100.),
+                padding: UiRect::axes(Val::Px(15.0), Val::Px(10.0)),
+                ..default()
+            },
+            ..default()
+        })
+        .id();
+    // TODO: needs to be referenced
+    let todo_items_left = commands
+        .spawn((
+            TextBundle::from_section("3 items left", text_styles::footer()),
+            markers::TodoItemsLeftView,
         ))
         .id();
 
-    // main
-    // - todo_input_container
-    // - todo_list
-    commands.entity(main).add_child(todo_input_container);
-    commands.entity(main).add_child(todo_list);
+    let todo_filters = commands
+        .spawn(NodeBundle {
+            style: Style {
+                flex_direction: FlexDirection::Row,
+                ..default()
+            },
+            ..default()
+        })
+        .id();
+
+    let filter_btn = |border_color: Color| ButtonBundle {
+        border_color: border_color.into(),
+        style: Style {
+            border: UiRect::all(Val::Px(1.0)),
+            padding: UiRect::axes(Val::Px(7.0), Val::Px(3.0)),
+            margin: UiRect::all(Val::Px(3.0)),
+            ..default()
+        },
+        ..default()
+    };
+
+    let todo_filter_all_btn = commands
+        .spawn(filter_btn(colors::filters_li_a_selected()))
+        .id();
+
+    let todo_filter_all_txt = commands
+        .spawn(TextBundle::from_section("All", text_styles::footer()))
+        .id();
+
+    let todo_filter_active_btn = commands.spawn(filter_btn(Color::NONE)).id();
+
+    let todo_filter_active_txt = commands
+        .spawn(TextBundle::from_section("Active", text_styles::footer()))
+        .id();
+
+    let todo_filter_completed_btn = commands.spawn(filter_btn(Color::NONE)).id();
+
+    let todo_filter_completed_txt = commands
+        .spawn(TextBundle::from_section("Completed", text_styles::footer()))
+        .id();
+
+    let todo_clear_completed_btn = commands.spawn(ButtonBundle::default()).id();
+
+    let todo_clear_completed_txt = commands
+        .spawn(TextBundle::from_section(
+            "Clear completed",
+            text_styles::footer(),
+        ))
+        .id();
+
+    // app_main
+    // - app_title
+    // - todo_main
+    //   - todo_input_container
+    //   - todo_list
+    //   - todo_footer
+    //     - todo_items_left
+    //     - todo_filters
+    //     - todo_filter_all_btn
+    //       - todo_filter_all_txt
+    //     - todo_filter_active_btn
+    //       - todo_filter_active_txt
+    //     - todo_filter_completed_btn
+    //       - todo_filter_completed_txt
+    //     - todo_clear_completed_btn
+    //       - todo_clear_completed_txt
+    commands.entity(app_main).add_child(app_title);
+    commands.entity(app_main).add_child(todo_main);
+    commands.entity(todo_main).add_child(todo_input_container);
+    commands.entity(todo_main).add_child(todo_list);
+    commands.entity(todo_main).add_child(todo_footer);
+    commands.entity(todo_footer).add_child(todo_items_left);
+    commands.entity(todo_footer).add_child(todo_filters);
+    commands.entity(todo_filters).add_child(todo_filter_all_btn);
+    commands
+        .entity(todo_filter_all_btn)
+        .add_child(todo_filter_all_txt);
+    commands
+        .entity(todo_filters)
+        .add_child(todo_filter_active_btn);
+    commands
+        .entity(todo_filter_active_btn)
+        .add_child(todo_filter_active_txt);
+    commands
+        .entity(todo_filters)
+        .add_child(todo_filter_completed_btn);
+    commands
+        .entity(todo_filter_completed_btn)
+        .add_child(todo_filter_completed_txt);
+    commands
+        .entity(todo_footer)
+        .add_child(todo_clear_completed_btn);
+    commands
+        .entity(todo_clear_completed_btn)
+        .add_child(todo_clear_completed_txt);
 
     input_actions.send(ModelInputAction::Create("".to_string()));
 }
@@ -108,7 +224,7 @@ fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAct
 fn handle_deleter_interaction(
     mut delete_interaction_q: Query<
         (&Interaction, &View),
-        (Changed<Interaction>, With<TodoDeleterView>),
+        (Changed<Interaction>, With<markers::TodoDeleterView>),
     >,
     mut actions: EventWriter<ModelTodoAction>,
     mut set_focus: EventWriter<SetFocus>,
@@ -125,9 +241,9 @@ fn handle_deleter_interaction(
 fn handle_text_interaction(
     mut check_interaction_q: Query<
         (&Interaction, Entity),
-        (Changed<Interaction>, With<TodoTextView>),
+        (Changed<Interaction>, With<markers::TodoTextView>),
     >,
-    mut todo_text_q: Query<(Entity, &Parent), (With<Text>, With<TodoTextView>)>,
+    mut todo_text_q: Query<(Entity, &Parent), (With<Text>, With<markers::TodoTextView>)>,
     mut set_focus: EventWriter<SetFocus>,
 ) {
     for (interaction, clicked_entity) in check_interaction_q.iter_mut() {
@@ -143,8 +259,11 @@ fn handle_text_interaction(
 
 /// Interaction -> Event<SetFocus>
 fn handle_input_interaction(
-    mut check_interaction_q: Query<(&Interaction, Entity), (Changed<Interaction>, With<TodoInput>)>,
-    todo_text_q: Query<(Entity, &Parent), (With<Text>, With<TodoInput>)>,
+    mut check_interaction_q: Query<
+        (&Interaction, Entity),
+        (Changed<Interaction>, With<markers::TodoInput>),
+    >,
+    todo_text_q: Query<(Entity, &Parent), (With<Text>, With<markers::TodoInput>)>,
     mut set_focus: EventWriter<SetFocus>,
 ) {
     for (interaction, clicked_entity) in check_interaction_q.iter_mut() {
@@ -162,7 +281,7 @@ fn handle_input_interaction(
 fn handle_checkmark_interaction(
     mut check_interaction_q: Query<
         (&Interaction, &View),
-        (Changed<Interaction>, With<TodoCheckmarkView>),
+        (Changed<Interaction>, With<markers::TodoCheckmarkView>),
     >,
     model: Query<&ModelTodoChecked, ModelOnly>,
     mut actions: EventWriter<ModelTodoAction>,
@@ -182,7 +301,7 @@ fn handle_checkmark_interaction(
 /// But this system also directly updates the `Text` which it probably shouldn't (consider splitting)
 fn handle_enter(
     mut actions: EventWriter<ModelTodoAction>,
-    mut todo_input_q: Query<&mut Text, With<TodoInput>>,
+    mut todo_input_q: Query<&mut Text, With<markers::TodoInput>>,
     keys: Res<Input<KeyCode>>,
     focus: Res<Focus>,
 ) {
@@ -216,8 +335,11 @@ fn handle_focus(mut set_focus_events: EventReader<SetFocus>, mut focus: ResMut<F
 fn handle_typing(
     mut evr_char: EventReader<ReceivedCharacter>,
     focus: Res<Focus>,
-    todo_text_q: Query<(&Text, &View), With<TodoTextView>>,
-    mut todo_input_q: Query<(&Text, &View), (With<TodoInput>, Without<TodoTextView>)>,
+    todo_text_q: Query<(&Text, &View), With<markers::TodoTextView>>,
+    mut todo_input_q: Query<
+        (&Text, &View),
+        (With<markers::TodoInput>, Without<markers::TodoTextView>),
+    >,
     mut todo_actions: EventWriter<ModelTodoAction>,
     mut input_actions: EventWriter<ModelInputAction>,
 ) {
@@ -251,11 +373,17 @@ fn update_todo_model(
     mut commands: Commands,
     mut todo_text: Query<&mut ModelTodoText, ModelOnly>,
     mut todo_checked: Query<&mut ModelTodoChecked, ModelOnly>,
+    mut todo_edit: Query<&mut ModelTodoEdit, ModelOnly>,
 ) {
     for action in actions.iter() {
         match action {
             ModelTodoAction::Create(text) => {
-                commands.spawn((ModelTodoText(text.clone()), ModelTodoChecked(false), Model));
+                commands.spawn((
+                    ModelTodoText(text.clone()),
+                    ModelTodoChecked(false),
+                    ModelTodoEdit(false),
+                    Model,
+                ));
             }
             ModelTodoAction::Delete(e) => {
                 commands.entity(*e).despawn_recursive();
@@ -265,6 +393,9 @@ fn update_todo_model(
             }
             ModelTodoAction::UpdateText(e, text) => {
                 todo_text.get_mut(*e).unwrap().0 = text.clone();
+            }
+            ModelTodoAction::Edit(e, edit) => {
+                todo_edit.get_mut(*e).unwrap().0 = *edit;
             }
         }
     }
@@ -296,7 +427,7 @@ fn update_input_model(
 /// ModelInputText -> View + Event<SetFocus>
 fn display_text_input(
     inputs: Query<(ModelInputEntity, &ModelInputText), (Added<ModelInputText>, ModelOnly)>,
-    todo_input_container: Query<Entity, With<TodoInputContainer>>,
+    todo_input_container: Query<Entity, With<markers::TodoInputContainer>>,
     mut commands: Commands,
     mut set_focus: EventWriter<SetFocus>,
 ) {
@@ -310,7 +441,7 @@ fn display_text_input(
                         overflow: Overflow::clip(),
                         align_items: AlignItems::Center,
                         margin: UiRect::all(Val::Px(10.)),
-                        width: Val::Px(200.),
+                        min_width: Val::Percent(100.),
                         height: Val::Px(40.),
                         border: UiRect::all(Val::Px(4.)),
                         ..default()
@@ -319,17 +450,17 @@ fn display_text_input(
                     ..default()
                 },
                 View(model_entity),
-                TodoInput,
+                markers::TodoInput,
             ))
             .id();
         let todo_input_text = commands
             .spawn((
                 TextBundle {
-                    text: Text::from_section(input.0.clone(), default()),
+                    text: Text::from_section(input.0.clone(), text_styles::todo()),
                     ..default()
                 },
                 View(model_entity),
-                TodoInput,
+                markers::TodoInput,
             ))
             .id();
 
@@ -346,11 +477,11 @@ fn display_text_input(
 }
 
 /// Helper function
-fn display_checked(checked: &ModelTodoChecked) -> &'static str {
+fn display_checked(checked: &ModelTodoChecked) -> TextStyle {
     if checked.0 {
-        "[x]"
+        text_styles::checkmark()
     } else {
-        "[ ]"
+        text_styles::checkmark_complete()
     }
 }
 
@@ -363,7 +494,7 @@ fn display_todos(
         (ModelTodoEntity, &ModelTodoText, &ModelTodoChecked),
         (Added<ModelTodoText>, Added<ModelTodoChecked>, ModelOnly),
     >,
-    todo_list_q: Query<Entity, With<TodoList>>,
+    todo_list_q: Query<Entity, With<markers::TodoList>>,
     mut commands: Commands,
 ) {
     // an outer reference
@@ -374,76 +505,101 @@ fn display_todos(
         let todo_item = commands
             .spawn((
                 NodeBundle {
+                    #[cfg(feature = "debug")]
+                    background_color: Color::RED.into(),
                     style: Style {
-                        margin: UiRect::all(Val::Px(5.)),
+                        justify_content: JustifyContent::SpaceBetween,
+                        align_items: AlignItems::Center,
+                        border: UiRect::bottom(Val::Px(1.0)),
+                        width: Val::Percent(100.),
                         ..default()
                     },
+                    border_color: colors::todo_list_item_border_bottom().into(),
                     ..default()
                 },
                 View(model_entity),
-                TodoRootView,
+                markers::TodoRootView,
             ))
             .id();
         let todo_check_btn = commands
             .spawn((
                 ButtonBundle {
+                    #[cfg(feature = "debug")]
+                    background_color: Color::BLUE.into(),
                     style: Style {
                         width: Val::Px(40.),
                         height: Val::Px(40.),
                         justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
                         overflow: Overflow::clip(),
+                        padding: UiRect::axes(Val::Auto, Val::Px(15.)),
                         ..default()
                     },
-                    background_color: Color::NONE.into(),
                     ..default()
                 },
                 View(model_entity),
-                TodoCheckmarkView,
+                markers::TodoCheckmarkView,
             ))
             .id();
         let todo_check_txt = commands
             .spawn((
                 TextBundle {
-                    text: Text::from_section(display_checked(checked), default()),
+                    #[cfg(feature = "debug")]
+                    background_color: Color::FUCHSIA.into(),
+                    text: Text::from_sections([
+                        TextSection::new("[", text_styles::todo()),
+                        TextSection::new("x", display_checked(checked)),
+                        TextSection::new("]", text_styles::todo()),
+                    ]),
                     ..default()
                 },
                 View(model_entity),
-                TodoCheckmarkView,
+                markers::TodoCheckmarkView,
             ))
             .id();
-        commands.entity(todo_check_btn).add_child(todo_check_txt);
-        let todo_btn = commands
+        let todo_text_btn = commands
             .spawn((
                 ButtonBundle {
+                    #[cfg(feature = "debug")]
+                    background_color: Color::GREEN.into(),
                     style: Style {
-                        width: Val::Px(200.),
+                        width: Val::Percent(100.),
                         height: Val::Px(40.),
-                        overflow: Overflow::clip(),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
                         ..default()
                     },
-                    background_color: Color::NONE.into(),
                     ..default()
                 },
                 View(model_entity),
-                TodoTextView,
+                markers::TodoTextView,
             ))
             .id();
-        let todo_txt = commands
+        let todo_text_txt = commands
             .spawn((
                 TextBundle {
-                    text: Text::from_section(&todo.0, default()),
+                    #[cfg(feature = "debug")]
+                    background_color: Color::GOLD.into(),
+                    style: Style {
+                        flex_grow: 1.0,
+                        ..default()
+                    },
+                    text: Text::from_section(&todo.0, text_styles::todo()),
                     ..default()
                 },
                 View(model_entity),
-                TodoTextView,
+                markers::TodoTextView,
             ))
             .id();
 
         let todo_delete_btn = commands
             .spawn((
                 ButtonBundle {
+                    #[cfg(feature = "debug")]
+                    background_color: Color::YELLOW.into(),
                     style: Style {
                         justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
                         width: Val::Px(40.),
                         height: Val::Px(40.),
                         margin: UiRect {
@@ -454,17 +610,18 @@ fn display_todos(
                         overflow: Overflow::clip(),
                         ..default()
                     },
-                    background_color: Color::NONE.into(),
                     ..default()
                 },
                 View(model_entity),
-                TodoDeleterView,
+                markers::TodoDeleterView,
             ))
             .id();
         let todo_delete_txt = commands
             .spawn((
                 TextBundle {
-                    text: Text::from_section("x", default()),
+                    #[cfg(feature = "debug")]
+                    background_color: Color::TURQUOISE.into(),
+                    text: Text::from_section("x", text_styles::destroy()),
                     ..default()
                 },
                 View(model_entity),
@@ -475,14 +632,16 @@ fn display_todos(
         // todo_list
         // - [todo_item]
         //   - todo_check_btn
-        //   - todo_btn
-        //      - todo_txt
+        //      - todo_check_txt
+        //   - todo_text_btn
+        //      - todo_text_txt
         //   - todo_delete_btn
         //      - todo_delete_txt
         commands.entity(todo_list).add_child(todo_item);
         commands.entity(todo_item).add_child(todo_check_btn);
-        commands.entity(todo_item).add_child(todo_btn);
-        commands.entity(todo_btn).add_child(todo_txt);
+        commands.entity(todo_check_btn).add_child(todo_check_txt);
+        commands.entity(todo_item).add_child(todo_text_btn);
+        commands.entity(todo_text_btn).add_child(todo_text_txt);
         commands.entity(todo_item).add_child(todo_delete_btn);
         commands.entity(todo_delete_btn).add_child(todo_delete_txt);
     }
@@ -493,7 +652,7 @@ fn display_todos(
 /// ModelTodoText -> View
 fn update_displayed_todos_text(
     todos_text: Query<&ModelTodoText, (Changed<ModelTodoText>, ModelOnly)>,
-    mut views: Query<(&mut Text, &View), (With<TodoTextView>, ViewOnly)>,
+    mut views: Query<(&mut Text, &View), (With<markers::TodoTextView>, ViewOnly)>,
 ) {
     // outer loop, library-provided
     for (mut text, view) in views.iter_mut() {
@@ -513,20 +672,32 @@ fn update_displayed_todos_text(
 /// Whenever a model (todo.checked) is updated, views that depend on it are updated
 ///
 /// ModelTodoChecked -> View
-fn update_displayed_todos_checked(
+fn update_displayed_todos_text_checked(
     model_todo_checked: Query<&ModelTodoChecked, (Changed<ModelTodoChecked>, ModelOnly)>,
-    mut views: Query<(&mut Text, &View, Option<&TodoCheckmarkView>), ViewOnly>,
+    mut views: Query<(&mut Text, &View), (ViewOnly, With<markers::TodoTextView>)>,
 ) {
     // outer loop, library-provided
-    for (mut text, view, maybe_checkbox) in views.iter_mut() {
+    for (mut text, view) in views.iter_mut() {
         if let Ok(checked) = model_todo_checked.get(view.0) {
             // inner logic, user-provided
-            // unfortunately, this particular system conflates both TodoCheckView and TodoTextView
-            // so this separation is not clear
-            text.sections[0].style.color = if checked.0 { Color::GRAY } else { Color::WHITE };
-            if maybe_checkbox.is_some() {
-                text.sections[0].value = display_checked(checked).to_string();
-            }
+            text.sections[0].style.color = if checked.0 {
+                colors::todo_list_item_completed_color()
+            } else {
+                colors::body_color()
+            };
+        }
+    }
+}
+
+fn update_displayed_todos_checkmark_checked(
+    model_todo_checked: Query<&ModelTodoChecked, (Changed<ModelTodoChecked>, ModelOnly)>,
+    mut views: Query<(&mut Text, &View), (ViewOnly, With<markers::TodoCheckmarkView>)>,
+) {
+    // outer loop, library-provided
+    for (mut text, view) in views.iter_mut() {
+        if let Ok(checked) = model_todo_checked.get(view.0) {
+            // inner logic, user-provided
+            text.sections[1].style = display_checked(checked);
         }
     }
 }
@@ -536,7 +707,7 @@ fn update_displayed_todos_checked(
 /// ModelInputText -> View
 fn update_displayed_input_text(
     model_input_text: Query<&ModelInputText, (Changed<ModelInputText>, ModelOnly)>,
-    mut views: Query<(&mut Text, &View), (With<TodoInput>, ViewOnly)>,
+    mut views: Query<(&mut Text, &View), (With<markers::TodoInput>, ViewOnly)>,
 ) {
     // outer loop, library-provided
     for (mut text, view) in views.iter_mut() {
@@ -552,15 +723,16 @@ fn update_displayed_input_text(
 /// Model -> View
 fn remove_displayed_todos(
     mut removed: RemovedComponents<Model>,
-    views: Query<(Entity, &View), (ViewOnly, With<TodoRootView>)>,
+    views: Query<(Entity, &View), (ViewOnly, With<markers::TodoRootView>)>,
     mut commands: Commands,
 ) {
-    for entity in removed.iter() {
-        // TODO: O(n^2) is too expensive here, should we have 2-way-relationship?
-        for (view_entity, view) in views.iter() {
-            if view.0 == entity {
-                commands.entity(view_entity).despawn_recursive();
-            }
+    let models_to_views = views
+        .iter()
+        .map(|(entity, view)| (view.0, entity))
+        .collect::<std::collections::HashMap<_, _>>();
+    for model_entity in removed.iter() {
+        if let Some(view_entity) = models_to_views.get(&model_entity) {
+            commands.entity(*view_entity).despawn_recursive();
         }
     }
 }
@@ -620,6 +792,7 @@ enum ModelTodoAction {
     Delete(ModelTodoEntity),
     UpdateText(ModelTodoEntity, String),
     UpdateChecked(ModelTodoEntity, bool),
+    Edit(ModelTodoEntity, bool),
 }
 
 /// See [`ModelTodoAction`].
@@ -629,6 +802,9 @@ struct ModelTodoText(String);
 /// See [`ModelTodoAction`].
 #[derive(Component)]
 struct ModelTodoChecked(bool);
+
+#[derive(Component)]
+struct ModelTodoEdit(bool);
 
 /// Combined with `ModelInputText`,
 /// this is functionally equivalent to
@@ -655,3 +831,255 @@ enum ModelInputAction {
 /// See [`ModelInputAction`].
 #[derive(Component)]
 struct ModelInputText(String);
+
+/// https://todomvc.com/examples/vanillajs/node_modules/todomvc-app-css/index.css
+///
+/// ```css
+/// body {
+///     background: #f5f5f5;
+///     color: #4d4d4d;
+/// }
+/// .todoapp {
+///     background: #fff;
+///     box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.2),
+///                 0 25px 50px 0 rgba(0, 0, 0, 0.1);
+/// }
+/// .todoapp input::input-placeholder {
+///     color: #e6e6e6;
+/// }
+/// .todoapp h1 {
+///     color: rgba(175, 47, 47, 0.15);
+/// }
+/// .new-todo {
+///     background: rgba(0, 0, 0, 0.003);
+///     box-shadow: inset 0 -2px 1px rgba(0,0,0,0.03);
+/// }
+/// .main {
+///     border-top: 1px solid #e6e6e6;
+/// }
+/// .toggle-all + label:before {
+///     color: #e6e6e6;
+/// }
+/// .toggle-all:checked + label:before {
+///     color: #737373;
+/// }
+/// .todo-list li {
+///     border-bottom: 1px solid #ededed;
+/// }
+/// .todo-list li.completed label {
+///     color: #d9d9d9;
+/// }
+/// .todo-list li .destroy {
+///     color: #cc9a9a;
+/// }
+/// .todo-list li .destroy:hover {
+///     color: #af5b5e;
+/// }
+/// .footer {
+///     color: #777;
+///     border-top: 1px solid #e6e6e6;
+/// }
+/// .footer:before {
+///     box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2),
+///                 0 8px 0 -3px #f6f6f6,
+///                 0 9px 1px -3px rgba(0, 0, 0, 0.2),
+///                 0 16px 0 -6px #f6f6f6,
+///                 0 17px 2px -6px rgba(0, 0, 0, 0.2);
+/// }
+/// .info {
+///     color: #bfbfbf;
+///     text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+/// }
+/// .filters li a:hover {
+///     border-color: rgba(175, 47, 47, 0.1);
+/// }
+/// .filters li a.selected {
+///     border-color: rgba(175, 47, 47, 0.2);
+/// }
+/// ```
+mod colors {
+    #![allow(unused)]
+    use bevy::prelude::Color;
+
+    pub fn body_background() -> Color {
+        hex("#f5f5f5")
+    }
+    pub fn body_color() -> Color {
+        hex("#4d4d4d")
+    }
+    pub fn todoapp_background() -> Color {
+        hex("#fff")
+    }
+    pub fn todoapp_boxshadow_0() -> Color {
+        rgba(0, 0, 0, 0.2)
+    }
+    pub fn todoapp_boxshadow_1() -> Color {
+        rgba(0, 0, 0, 0.1)
+    }
+    pub fn todoapp_inputplaceholder_color() -> Color {
+        hex("#e6e6e6")
+    }
+    pub fn todoapp_h1_color() -> Color {
+        rgba(175, 47, 47, 0.15)
+    }
+    pub fn new_todo_background() -> Color {
+        rgba(0, 0, 0, 0.003)
+    }
+    pub fn new_todo_boxshadow_0() -> Color {
+        rgba(0, 0, 0, 0.03)
+    }
+    pub fn main_border_top() -> Color {
+        hex("#e6e6e6")
+    }
+    pub fn toggle_all_checked() -> Color {
+        hex("#737373")
+    }
+    pub fn toggle_all_checked_background() -> Color {
+        hex("#e6e6e6")
+    }
+    pub fn todo_list_item_border_bottom() -> Color {
+        hex("#ededed")
+    }
+    pub fn todo_list_item_completed_color() -> Color {
+        hex("#d9d9d9")
+    }
+    pub fn todo_list_item_destroy_color() -> Color {
+        hex("#cc9a9a")
+    }
+    pub fn todo_list_item_destroy_hover_color() -> Color {
+        hex("#af5b5e")
+    }
+    pub fn footer_color() -> Color {
+        hex("#777")
+    }
+    pub fn footer_bordertop() -> Color {
+        hex("#e6e6e6")
+    }
+    pub fn footer_before_boxshadow_0() -> Color {
+        rgba(0, 0, 0, 0.2)
+    }
+    pub fn footer_before_boxshadow_1() -> Color {
+        hex("#f6f6f6")
+    }
+    pub fn info_color() -> Color {
+        hex("#bfbfbf")
+    }
+    pub fn info_textshadow() -> Color {
+        rgba(255, 255, 255, 0.5)
+    }
+    pub fn filters_li_a_hover() -> Color {
+        rgba(175, 47, 47, 0.1)
+    }
+    pub fn filters_li_a_selected() -> Color {
+        rgba(175, 47, 47, 0.2)
+    }
+
+    fn rgb(r: u8, g: u8, b: u8) -> Color {
+        rgba(r, g, b, 1.0)
+    }
+    fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
+        Color::rgba(r as f32 / 256.0, g as f32 / 256.0, b as f32 / 256.0, a)
+    }
+    fn hex(s: &str) -> Color {
+        Color::hex(s).unwrap()
+    }
+}
+
+mod text_styles {
+    #![allow(unused)]
+
+    use bevy::prelude::{default, Color, TextStyle};
+
+    use crate::colors;
+
+    pub fn footer() -> TextStyle {
+        TextStyle {
+            font_size: 14.0 * 1.2,
+            color: colors::footer_color(),
+            ..default()
+        }
+    }
+
+    pub fn todo() -> TextStyle {
+        TextStyle {
+            font_size: 24.0 * 1.2,
+            color: colors::body_color(),
+            ..default()
+        }
+    }
+
+    pub fn checkmark() -> TextStyle {
+        TextStyle {
+            font_size: 24.0 * 1.2,
+            color: Color::LIME_GREEN,
+            ..default()
+        }
+    }
+
+    pub fn checkmark_complete() -> TextStyle {
+        TextStyle {
+            font_size: 24.0 * 1.2,
+            color: Color::NONE,
+            ..default()
+        }
+    }
+
+    pub fn destroy() -> TextStyle {
+        TextStyle {
+            font_size: 24.0 * 1.2,
+            color: colors::todo_list_item_destroy_color(),
+            ..default()
+        }
+    }
+
+    pub fn title() -> TextStyle {
+        TextStyle {
+            font_size: 100.0 * 1.2,
+            color: colors::todoapp_h1_color(),
+            ..default()
+        }
+    }
+}
+
+mod markers {
+    use bevy::prelude::Component;
+
+    #[derive(Component)]
+    pub struct TodoInputContainer;
+
+    #[derive(Component)]
+    pub struct TodoList;
+
+    #[derive(Component)]
+    pub struct TodoInput;
+
+    #[derive(Component)]
+    pub struct TodoRootView;
+
+    #[derive(Component)]
+    pub struct TodoTextView;
+
+    #[derive(Component)]
+    pub struct TodoCheckmarkView;
+
+    #[derive(Component)]
+    pub struct TodoDeleterView;
+
+    #[derive(Component)]
+    pub struct TodoItemsLeftView;
+
+    #[derive(Component)]
+    pub struct TodoFilters;
+
+    #[derive(Component)]
+    pub struct TodoClearCompleted;
+
+    #[derive(Component)]
+    pub struct TodoFilterAll;
+
+    #[derive(Component)]
+    pub struct TodoFilterActive;
+
+    #[derive(Component)]
+    pub struct TodoFilterCompleted;
+}
