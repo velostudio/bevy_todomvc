@@ -1,6 +1,7 @@
 #![allow(clippy::type_complexity)]
 
 use bevy::prelude::*;
+use tree_builder::EntityTreeExt;
 
 fn main() {
     App::new()
@@ -187,35 +188,23 @@ fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAct
     //       - todo_filter_completed_txt
     //     - todo_clear_completed_btn
     //       - todo_clear_completed_txt
-    commands.entity(app_main).add_child(app_title);
-    commands.entity(app_main).add_child(todo_main);
-    commands.entity(todo_main).add_child(todo_input_container);
-    commands.entity(todo_main).add_child(todo_list);
-    commands.entity(todo_main).add_child(todo_footer);
-    commands.entity(todo_footer).add_child(todo_items_left);
-    commands.entity(todo_footer).add_child(todo_filters);
-    commands.entity(todo_filters).add_child(todo_filter_all_btn);
-    commands
-        .entity(todo_filter_all_btn)
-        .add_child(todo_filter_all_txt);
-    commands
-        .entity(todo_filters)
-        .add_child(todo_filter_active_btn);
-    commands
-        .entity(todo_filter_active_btn)
-        .add_child(todo_filter_active_txt);
-    commands
-        .entity(todo_filters)
-        .add_child(todo_filter_completed_btn);
-    commands
-        .entity(todo_filter_completed_btn)
-        .add_child(todo_filter_completed_txt);
-    commands
-        .entity(todo_footer)
-        .add_child(todo_clear_completed_btn);
-    commands
-        .entity(todo_clear_completed_btn)
-        .add_child(todo_clear_completed_txt);
+    app_main
+        .t((
+            app_title,
+            todo_main.t((
+                todo_input_container,
+                todo_list,
+                todo_footer.t((
+                    todo_items_left.t(()),
+                    todo_filters.t(()),
+                    todo_filter_all_btn.t(todo_filter_all_txt),
+                    todo_filter_active_btn.t(todo_filter_active_txt),
+                    todo_filter_completed_btn.t(todo_filter_completed_txt),
+                    todo_clear_completed_btn.t(todo_clear_completed_txt),
+                )),
+            )),
+        ))
+        .build(&mut commands);
 
     input_actions.send(ModelInputAction::Create("".to_string()));
 }
@@ -431,6 +420,7 @@ fn display_text_input(
     mut commands: Commands,
     mut set_focus: EventWriter<SetFocus>,
 ) {
+    let todo_input_container = todo_input_container.single();
     for (model_entity, input) in inputs.iter() {
         let todo_input = commands
             .spawn((
@@ -467,11 +457,9 @@ fn display_text_input(
         // - todo_input_container
         //   - todo_input
         //      - todo_input_text
-        commands
-            .entity(todo_input_container.single())
-            .add_child(todo_input);
-        commands.entity(todo_input).add_child(todo_input_text);
-
+        todo_input_container
+            .t(todo_input.t(todo_input_text))
+            .build(&mut commands);
         set_focus.send(SetFocus(Some(todo_input_text)));
     }
 }
@@ -637,13 +625,13 @@ fn display_todos(
         //      - todo_text_txt
         //   - todo_delete_btn
         //      - todo_delete_txt
-        commands.entity(todo_list).add_child(todo_item);
-        commands.entity(todo_item).add_child(todo_check_btn);
-        commands.entity(todo_check_btn).add_child(todo_check_txt);
-        commands.entity(todo_item).add_child(todo_text_btn);
-        commands.entity(todo_text_btn).add_child(todo_text_txt);
-        commands.entity(todo_item).add_child(todo_delete_btn);
-        commands.entity(todo_delete_btn).add_child(todo_delete_txt);
+        todo_list
+            .t(todo_item.t((
+                todo_check_btn.t(todo_check_txt),
+                todo_text_btn.t(todo_text_txt),
+                todo_delete_btn.t(todo_delete_txt),
+            )))
+            .build(&mut commands);
     }
 }
 
@@ -1082,4 +1070,904 @@ mod markers {
 
     #[derive(Component)]
     pub struct TodoFilterCompleted;
+}
+
+mod tree_builder {
+    /// TODO: Make the impls for tuples a macro
+    /// TODO: Figure out how to make the iterators IntoTreeIterator
+    /// TODO: Or better, figure out how to make the iterators IntoTree
+    /// TODO: Simplify the implementation (less re-implementation, call methods and functions instead)
+    /// TODO: #[inline]
+    use bevy::prelude::{BuildChildren, Commands, Entity};
+
+    // dead code
+    fn _x<T>(root: Entity, branches: impl IntoIterator<Item = T>) -> Tree
+    where
+        T: IntoTree,
+    {
+        // take the current tree and create a new one
+        Tree::new(root, branches)
+    }
+
+    // dead code
+    fn _l(leaf: Entity) -> Tree {
+        Tree::new_leaf(leaf)
+    }
+
+    // dead code
+    fn _c<T, S, I>(children: T) -> TreeIterator<I>
+    where
+        T: IntoTreeIterator<IterableStorage = S>,
+        S: IntoIterator<IntoIter = I>,
+        I: Iterator<Item = Tree>,
+    {
+        children.into_tree_iter()
+    }
+
+    // dead code
+    /// Convert an `IntoIterator<Item = Tree>`s to a `TreeIterator`
+    ///
+    /// Effectively shorthand for `TreeIterator::new()`
+    pub fn _col<S, I>(children: S) -> TreeIterator<I>
+    where
+        S: IntoIterator<IntoIter = I>,
+        I: Iterator<Item = Tree>,
+    {
+        TreeIterator::new(children)
+    }
+
+    /// Construct a [`Tree`] of entities
+    fn build_tree<T, S, I>(root: Entity, children: T) -> Tree
+    where
+        // T is the thing that becomes an iterator over `Tree`s, e.g. `(Entity, Entity)`
+        T: IntoTreeIterator<IterableStorage = S>,
+        // S is the storage for the iterator, which becomes an iterator over `Tree`s, e.g. `[Entity, Entity]`
+        S: IntoIterator<IntoIter = I>,
+        // I is the iterator over `Tree`s
+        I: Iterator<Item = Tree>,
+    {
+        // take the current tree and create a new one
+        let branches = children.into_tree_iter();
+        Tree::new(root, branches)
+    }
+
+    pub trait IteratorAdapter {
+        type IntoIter;
+        type Iterator;
+        type Item;
+        fn c(self) -> TreeIterator<Self::Iterator>
+        where
+            Self::IntoIter: IntoIterator<Item = Self::Item>,
+            Self::Iterator: Iterator<Item = Tree>,
+            Self::Item: IntoTree;
+    }
+
+    impl<S> IteratorAdapter for S
+    where
+        S: IntoIterator,
+        S::Item: IntoTree,
+    {
+        type IntoIter = S;
+        type Iterator = S::IntoIter;
+        type Item = Tree;
+        /// Construct a `TreeIterator` from an `Iterator` of anything that can be converted into a tree
+        fn c(self) -> TreeIterator<Self::Iterator>
+        where
+            Self::IntoIter: IntoIterator<Item = Self::Item>,
+            Self::Iterator: Iterator<Item = Tree>,
+            Self::Item: IntoTree,
+        {
+            TreeIterator::new(self)
+        }
+    }
+
+    /// A type that simply stores the id of the root entity,
+    /// and the id pairs of all branches and their sub-branches, recursively
+    #[derive(Debug)]
+    pub struct Tree {
+        pub id: Entity,
+        pub links: Vec<(Entity, Entity)>,
+    }
+
+    impl Tree {
+        fn new_leaf(root: Entity) -> Self {
+            Self {
+                id: root,
+                links: Vec::new(),
+            }
+        }
+
+        fn new<T>(root: Entity, branches: impl IntoIterator<Item = T>) -> Tree
+        where
+            T: IntoTree,
+        {
+            // take the current entity as the root and create branches
+            let branches = branches.into_iter().map(|t| t.into_tree());
+            let mut this_tree = Self::new_leaf(root);
+            for child_tree in branches {
+                this_tree.links.push((this_tree.id, child_tree.id));
+                this_tree.links.extend(child_tree.links);
+            }
+            this_tree
+        }
+
+        pub fn build(self, commands: &mut Commands) {
+            for (parent, child) in self.links {
+                commands.entity(parent).add_child(child);
+            }
+        }
+    }
+
+    /// A type that stores an iterator over trees
+    pub struct TreeIterator<I>
+    where
+        I: Iterator<Item = Tree>,
+    {
+        iter: I,
+    }
+
+    impl<I> TreeIterator<I>
+    where
+        I: Iterator<Item = Tree>,
+    {
+        fn new<S>(iterable: S) -> Self
+        where
+            S: IntoIterator<IntoIter = I>,
+        {
+            let iter = iterable.into_iter();
+            Self { iter }
+        }
+    }
+
+    impl<S, I> From<S> for TreeIterator<I>
+    where
+        S: IntoIterator<IntoIter = I>,
+        I: Iterator<Item = Tree>,
+    {
+        fn from(iterable: S) -> Self {
+            Self::new(iterable)
+        }
+    }
+    trait Identity {
+        type This;
+        fn identity(self) -> Self::This;
+    }
+
+    impl<A> Identity for A {
+        type This = A;
+        fn identity(self) -> Self::This {
+            self
+        }
+    }
+
+    impl<I> Iterator for TreeIterator<I>
+    where
+        I: Iterator<Item = Tree>,
+    {
+        type Item = Tree;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            self.iter.next()
+        }
+    }
+    pub trait EntityTreeExt {
+        fn t<T, S, I>(self, children: T) -> Tree
+        where
+            // T is the thing that becomes an iterator over `Tree`s, e.g. `(Entity, Entity)`
+            T: IntoTreeIterator<IterableStorage = S>,
+            // S is the iterable storage for the iterator, which becomes an iterator over `Tree`s, e.g. `[Entity, Entity]`
+            S: IntoIterator<IntoIter = I>,
+            // I is the iterator over `Tree`s
+            I: Iterator<Item = Tree>;
+
+        fn l(self) -> Tree;
+    }
+
+    impl EntityTreeExt for Entity {
+        /// Construct a [`Tree`] of entities
+        ///
+        /// # Example
+        ///
+        /// ```rs
+        /// # use bevy::prelude::*;
+        /// # let world = World::new();
+        /// # let mut queue = bevy::ecs::system::CommandQueue::default();
+        /// # let mut commands = Commands::new(&mut queue, &world);
+        /// # let app_main = Entity::PLACEHOLDER;
+        /// # let app_title = Entity::PLACEHOLDER;
+        /// # let todo_main = Entity::PLACEHOLDER;
+        /// # let todo_input_container = Entity::PLACEHOLDER;
+        /// # let todo_list = Entity::PLACEHOLDER;
+        /// # let todo_footer = Entity::PLACEHOLDER;
+        /// # let todo_items_left = Entity::PLACEHOLDER;
+        /// # let todo_filters = Entity::PLACEHOLDER;
+        /// # let todo_filter_all_btn = Entity::PLACEHOLDER;
+        /// # let todo_filter_all_txt = Entity::PLACEHOLDER;
+        /// # let todo_filter_active_btn = Entity::PLACEHOLDER;
+        /// # let todo_filter_active_txt = Entity::PLACEHOLDER;
+        /// # let todo_filter_completed_btn = Entity::PLACEHOLDER;
+        /// # let todo_filter_completed_txt = Entity::PLACEHOLDER;
+        /// # let todo_clear_completed_btn = Entity::PLACEHOLDER;
+        /// # let todo_clear_completed_txt = Entity::PLACEHOLDER;
+        /// // app_main
+        /// // - app_title
+        /// // - todo_main
+        /// //   - todo_input_container
+        /// //   - todo_list
+        /// //   - todo_footer
+        /// //     - todo_items_left
+        /// //     - todo_filters
+        /// //     - todo_filter_all_btn
+        /// //       - todo_filter_all_txt
+        /// //     - todo_filter_active_btn
+        /// //       - todo_filter_active_txt
+        /// //     - todo_filter_completed_btn
+        /// //       - todo_filter_completed_txt
+        /// //     - todo_clear_completed_btn
+        /// //       - todo_clear_completed_txt
+        /// app_main.t((
+        ///     app_title,
+        ///     todo_main.t((
+        ///         todo_input_container,
+        ///         todo_list,
+        ///         todo_footer.t((
+        ///             todo_items_left,
+        ///             todo_filters,
+        ///             todo_filter_all_btn.t(todo_filter_all_txt),
+        ///             todo_filter_active_btn.t(todo_filter_active_txt),
+        ///             todo_filter_completed_btn.t(todo_filter_completed_txt),
+        ///             todo_clear_completed_btn.t(todo_clear_completed_txt),
+        ///         )),
+        ///     )),
+        /// ))
+        /// .build(&mut commands);
+        /// ```
+        fn t<T, S, I>(self, children: T) -> Tree
+        where
+            T: IntoTreeIterator<IterableStorage = S>,
+            S: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            build_tree(self, children)
+        }
+
+        fn l(self) -> Tree {
+            Tree::new_leaf(self)
+        }
+    }
+
+    pub trait IntoTree {
+        fn into_tree(self) -> Tree;
+    }
+
+    impl IntoTree for Tree {
+        fn into_tree(self) -> Tree {
+            self
+        }
+    }
+
+    impl IntoTree for Entity {
+        fn into_tree(self) -> Tree {
+            Tree::new_leaf(self)
+        }
+    }
+
+    pub trait IntoTreeIterator {
+        /// A storage type that can be converted into an iterator over `Tree`s
+        type IterableStorage;
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>;
+    }
+
+    impl<S: Iterator<Item = Tree>> IntoTreeIterator for TreeIterator<S> {
+        type IterableStorage = Self;
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            self.into()
+        }
+    }
+
+    // Special case: empty
+    impl IntoTreeIterator for () {
+        type IterableStorage = std::iter::Empty<Tree>;
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let source: std::iter::Empty<Tree> = std::iter::empty();
+            TreeIterator::new(source)
+        }
+    }
+
+    fn one_tree_source<T>(this: T) -> [Tree; 1]
+    where
+        T: IntoTree,
+    {
+        let t0 = this.into_tree();
+        [t0]
+    }
+
+    impl IntoTreeIterator for Entity {
+        type IterableStorage = [Tree; 1];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            TreeIterator::new(one_tree_source(self))
+        }
+    }
+
+    impl IntoTreeIterator for Tree {
+        type IterableStorage = [Tree; 1];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            TreeIterator::new(one_tree_source(self))
+        }
+    }
+
+    // A tuple of any types that convert into a `Tree`
+    impl<T0> IntoTreeIterator for (T0,)
+    where
+        T0: IntoTree,
+    {
+        type IterableStorage = [Tree; 1];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let t0 = self.0.into_tree();
+            let source = [t0];
+            TreeIterator::new(source)
+        }
+    }
+
+    // A tuple of any types that convert into a `Tree`
+    impl<T0, T1> IntoTreeIterator for (T0, T1)
+    where
+        T0: IntoTree,
+        T1: IntoTree,
+    {
+        type IterableStorage = [Tree; 2];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let t0 = self.0.into_tree();
+            let t1 = self.1.into_tree();
+            let source = [t0, t1];
+            TreeIterator::new(source)
+        }
+    }
+
+    // A tuple of any types that convert into a `Tree`
+    impl<T0, T1, T2> IntoTreeIterator for (T0, T1, T2)
+    where
+        T0: IntoTree,
+        T1: IntoTree,
+        T2: IntoTree,
+    {
+        type IterableStorage = [Tree; 3];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let t0 = self.0.into_tree();
+            let t1 = self.1.into_tree();
+            let t2 = self.2.into_tree();
+            let source = [t0, t1, t2];
+            TreeIterator::new(source)
+        }
+    }
+
+    // A tuple of any types that convert into a `Tree`
+    impl<T0, T1, T2, T3> IntoTreeIterator for (T0, T1, T2, T3)
+    where
+        T0: IntoTree,
+        T1: IntoTree,
+        T2: IntoTree,
+        T3: IntoTree,
+    {
+        type IterableStorage = [Tree; 4];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let t0 = self.0.into_tree();
+            let t1 = self.1.into_tree();
+            let t2 = self.2.into_tree();
+            let t3 = self.3.into_tree();
+            let source = [t0, t1, t2, t3];
+            TreeIterator::new(source)
+        }
+    }
+
+    // A tuple of any types that convert into a `Tree`
+    impl<T0, T1, T2, T3, T4> IntoTreeIterator for (T0, T1, T2, T3, T4)
+    where
+        T0: IntoTree,
+        T1: IntoTree,
+        T2: IntoTree,
+        T3: IntoTree,
+        T4: IntoTree,
+    {
+        type IterableStorage = [Tree; 5];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let t0 = self.0.into_tree();
+            let t1 = self.1.into_tree();
+            let t2 = self.2.into_tree();
+            let t3 = self.3.into_tree();
+            let t4 = self.4.into_tree();
+            let source = [t0, t1, t2, t3, t4];
+            TreeIterator::new(source)
+        }
+    }
+
+    // A tuple of any types that convert into a `Tree`
+    impl<T0, T1, T2, T3, T4, T5> IntoTreeIterator for (T0, T1, T2, T3, T4, T5)
+    where
+        T0: IntoTree,
+        T1: IntoTree,
+        T2: IntoTree,
+        T3: IntoTree,
+        T4: IntoTree,
+        T5: IntoTree,
+    {
+        type IterableStorage = [Tree; 6];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let t0 = self.0.into_tree();
+            let t1 = self.1.into_tree();
+            let t2 = self.2.into_tree();
+            let t3 = self.3.into_tree();
+            let t4 = self.4.into_tree();
+            let t5 = self.5.into_tree();
+            let source = [t0, t1, t2, t3, t4, t5];
+            TreeIterator::new(source)
+        }
+    }
+
+    // A tuple of any types that convert into a `Tree`
+    impl<T0, T1, T2, T3, T4, T5, T6> IntoTreeIterator for (T0, T1, T2, T3, T4, T5, T6)
+    where
+        T0: IntoTree,
+        T1: IntoTree,
+        T2: IntoTree,
+        T3: IntoTree,
+        T4: IntoTree,
+        T5: IntoTree,
+        T6: IntoTree,
+    {
+        type IterableStorage = [Tree; 7];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let t0 = self.0.into_tree();
+            let t1 = self.1.into_tree();
+            let t2 = self.2.into_tree();
+            let t3 = self.3.into_tree();
+            let t4 = self.4.into_tree();
+            let t5 = self.5.into_tree();
+            let t6 = self.6.into_tree();
+            let source = [t0, t1, t2, t3, t4, t5, t6];
+            TreeIterator::new(source)
+        }
+    }
+
+    // A tuple of any types that convert into a `Tree`
+    impl<T0, T1, T2, T3, T4, T5, T6, T7> IntoTreeIterator for (T0, T1, T2, T3, T4, T5, T6, T7)
+    where
+        T0: IntoTree,
+        T1: IntoTree,
+        T2: IntoTree,
+        T3: IntoTree,
+        T4: IntoTree,
+        T5: IntoTree,
+        T6: IntoTree,
+        T7: IntoTree,
+    {
+        type IterableStorage = [Tree; 8];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let t0 = self.0.into_tree();
+            let t1 = self.1.into_tree();
+            let t2 = self.2.into_tree();
+            let t3 = self.3.into_tree();
+            let t4 = self.4.into_tree();
+            let t5 = self.5.into_tree();
+            let t6 = self.6.into_tree();
+            let t7 = self.7.into_tree();
+            let source = [t0, t1, t2, t3, t4, t5, t6, t7];
+            TreeIterator::new(source)
+        }
+    }
+
+    // A tuple of any types that convert into a `Tree`
+    impl<T0, T1, T2, T3, T4, T5, T6, T7, T8> IntoTreeIterator for (T0, T1, T2, T3, T4, T5, T6, T7, T8)
+    where
+        T0: IntoTree,
+        T1: IntoTree,
+        T2: IntoTree,
+        T3: IntoTree,
+        T4: IntoTree,
+        T5: IntoTree,
+        T6: IntoTree,
+        T7: IntoTree,
+        T8: IntoTree,
+    {
+        type IterableStorage = [Tree; 9];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let t0 = self.0.into_tree();
+            let t1 = self.1.into_tree();
+            let t2 = self.2.into_tree();
+            let t3 = self.3.into_tree();
+            let t4 = self.4.into_tree();
+            let t5 = self.5.into_tree();
+            let t6 = self.6.into_tree();
+            let t7 = self.7.into_tree();
+            let t8 = self.8.into_tree();
+            let source = [t0, t1, t2, t3, t4, t5, t6, t7, t8];
+            TreeIterator::new(source)
+        }
+    }
+
+    // A tuple of any types that convert into a `Tree`
+    impl<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9> IntoTreeIterator
+        for (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9)
+    where
+        T0: IntoTree,
+        T1: IntoTree,
+        T2: IntoTree,
+        T3: IntoTree,
+        T4: IntoTree,
+        T5: IntoTree,
+        T6: IntoTree,
+        T7: IntoTree,
+        T8: IntoTree,
+        T9: IntoTree,
+    {
+        type IterableStorage = [Tree; 10];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let t0 = self.0.into_tree();
+            let t1 = self.1.into_tree();
+            let t2 = self.2.into_tree();
+            let t3 = self.3.into_tree();
+            let t4 = self.4.into_tree();
+            let t5 = self.5.into_tree();
+            let t6 = self.6.into_tree();
+            let t7 = self.7.into_tree();
+            let t8 = self.8.into_tree();
+            let t9 = self.9.into_tree();
+            let source = [t0, t1, t2, t3, t4, t5, t6, t7, t8, t9];
+            TreeIterator::new(source)
+        }
+    }
+
+    // A tuple of any types that convert into a `Tree`
+    impl<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10> IntoTreeIterator
+        for (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10)
+    where
+        T0: IntoTree,
+        T1: IntoTree,
+        T2: IntoTree,
+        T3: IntoTree,
+        T4: IntoTree,
+        T5: IntoTree,
+        T6: IntoTree,
+        T7: IntoTree,
+        T8: IntoTree,
+        T9: IntoTree,
+        T10: IntoTree,
+    {
+        type IterableStorage = [Tree; 11];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let t0 = self.0.into_tree();
+            let t1 = self.1.into_tree();
+            let t2 = self.2.into_tree();
+            let t3 = self.3.into_tree();
+            let t4 = self.4.into_tree();
+            let t5 = self.5.into_tree();
+            let t6 = self.6.into_tree();
+            let t7 = self.7.into_tree();
+            let t8 = self.8.into_tree();
+            let t9 = self.9.into_tree();
+            let t10 = self.10.into_tree();
+            let source = [t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10];
+            TreeIterator::new(source)
+        }
+    }
+
+    // A tuple of any types that convert into a `Tree`
+    impl<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11> IntoTreeIterator
+        for (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11)
+    where
+        T0: IntoTree,
+        T1: IntoTree,
+        T2: IntoTree,
+        T3: IntoTree,
+        T4: IntoTree,
+        T5: IntoTree,
+        T6: IntoTree,
+        T7: IntoTree,
+        T8: IntoTree,
+        T9: IntoTree,
+        T10: IntoTree,
+        T11: IntoTree,
+    {
+        type IterableStorage = [Tree; 12];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let t0 = self.0.into_tree();
+            let t1 = self.1.into_tree();
+            let t2 = self.2.into_tree();
+            let t3 = self.3.into_tree();
+            let t4 = self.4.into_tree();
+            let t5 = self.5.into_tree();
+            let t6 = self.6.into_tree();
+            let t7 = self.7.into_tree();
+            let t8 = self.8.into_tree();
+            let t9 = self.9.into_tree();
+            let t10 = self.10.into_tree();
+            let t11 = self.11.into_tree();
+            let source = [t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11];
+            TreeIterator::new(source)
+        }
+    }
+
+    // A tuple of any types that convert into a `Tree`
+    impl<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12> IntoTreeIterator
+        for (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12)
+    where
+        T0: IntoTree,
+        T1: IntoTree,
+        T2: IntoTree,
+        T3: IntoTree,
+        T4: IntoTree,
+        T5: IntoTree,
+        T6: IntoTree,
+        T7: IntoTree,
+        T8: IntoTree,
+        T9: IntoTree,
+        T10: IntoTree,
+        T11: IntoTree,
+        T12: IntoTree,
+    {
+        type IterableStorage = [Tree; 13];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let t0 = self.0.into_tree();
+            let t1 = self.1.into_tree();
+            let t2 = self.2.into_tree();
+            let t3 = self.3.into_tree();
+            let t4 = self.4.into_tree();
+            let t5 = self.5.into_tree();
+            let t6 = self.6.into_tree();
+            let t7 = self.7.into_tree();
+            let t8 = self.8.into_tree();
+            let t9 = self.9.into_tree();
+            let t10 = self.10.into_tree();
+            let t11 = self.11.into_tree();
+            let t12 = self.12.into_tree();
+            let source = [t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12];
+            TreeIterator::new(source)
+        }
+    }
+
+    // A tuple of any types that convert into a `Tree`
+    impl<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13> IntoTreeIterator
+        for (T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13)
+    where
+        T0: IntoTree,
+        T1: IntoTree,
+        T2: IntoTree,
+        T3: IntoTree,
+        T4: IntoTree,
+        T5: IntoTree,
+        T6: IntoTree,
+        T7: IntoTree,
+        T8: IntoTree,
+        T9: IntoTree,
+        T10: IntoTree,
+        T11: IntoTree,
+        T12: IntoTree,
+        T13: IntoTree,
+    {
+        type IterableStorage = [Tree; 14];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let t0 = self.0.into_tree();
+            let t1 = self.1.into_tree();
+            let t2 = self.2.into_tree();
+            let t3 = self.3.into_tree();
+            let t4 = self.4.into_tree();
+            let t5 = self.5.into_tree();
+            let t6 = self.6.into_tree();
+            let t7 = self.7.into_tree();
+            let t8 = self.8.into_tree();
+            let t9 = self.9.into_tree();
+            let t10 = self.10.into_tree();
+            let t11 = self.11.into_tree();
+            let t12 = self.12.into_tree();
+            let t13 = self.13.into_tree();
+            let source = [t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13];
+            TreeIterator::new(source)
+        }
+    }
+
+    // A tuple of any types that convert into a `Tree`
+    impl<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14> IntoTreeIterator
+        for (
+            T0,
+            T1,
+            T2,
+            T3,
+            T4,
+            T5,
+            T6,
+            T7,
+            T8,
+            T9,
+            T10,
+            T11,
+            T12,
+            T13,
+            T14,
+        )
+    where
+        T0: IntoTree,
+        T1: IntoTree,
+        T2: IntoTree,
+        T3: IntoTree,
+        T4: IntoTree,
+        T5: IntoTree,
+        T6: IntoTree,
+        T7: IntoTree,
+        T8: IntoTree,
+        T9: IntoTree,
+        T10: IntoTree,
+        T11: IntoTree,
+        T12: IntoTree,
+        T13: IntoTree,
+        T14: IntoTree,
+    {
+        type IterableStorage = [Tree; 15];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let t0 = self.0.into_tree();
+            let t1 = self.1.into_tree();
+            let t2 = self.2.into_tree();
+            let t3 = self.3.into_tree();
+            let t4 = self.4.into_tree();
+            let t5 = self.5.into_tree();
+            let t6 = self.6.into_tree();
+            let t7 = self.7.into_tree();
+            let t8 = self.8.into_tree();
+            let t9 = self.9.into_tree();
+            let t10 = self.10.into_tree();
+            let t11 = self.11.into_tree();
+            let t12 = self.12.into_tree();
+            let t13 = self.13.into_tree();
+            let t14 = self.14.into_tree();
+            let source = [
+                t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14,
+            ];
+            TreeIterator::new(source)
+        }
+    }
+
+    // A tuple of any types that convert into a `Tree`
+    impl<T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15> IntoTreeIterator
+        for (
+            T0,
+            T1,
+            T2,
+            T3,
+            T4,
+            T5,
+            T6,
+            T7,
+            T8,
+            T9,
+            T10,
+            T11,
+            T12,
+            T13,
+            T14,
+            T15,
+        )
+    where
+        T0: IntoTree,
+        T1: IntoTree,
+        T2: IntoTree,
+        T3: IntoTree,
+        T4: IntoTree,
+        T5: IntoTree,
+        T6: IntoTree,
+        T7: IntoTree,
+        T8: IntoTree,
+        T9: IntoTree,
+        T10: IntoTree,
+        T11: IntoTree,
+        T12: IntoTree,
+        T13: IntoTree,
+        T14: IntoTree,
+        T15: IntoTree,
+    {
+        type IterableStorage = [Tree; 16];
+        fn into_tree_iter<I>(self) -> TreeIterator<I>
+        where
+            Self::IterableStorage: IntoIterator<IntoIter = I>,
+            I: Iterator<Item = Tree>,
+        {
+            let t0 = self.0.into_tree();
+            let t1 = self.1.into_tree();
+            let t2 = self.2.into_tree();
+            let t3 = self.3.into_tree();
+            let t4 = self.4.into_tree();
+            let t5 = self.5.into_tree();
+            let t6 = self.6.into_tree();
+            let t7 = self.7.into_tree();
+            let t8 = self.8.into_tree();
+            let t9 = self.9.into_tree();
+            let t10 = self.10.into_tree();
+            let t11 = self.11.into_tree();
+            let t12 = self.12.into_tree();
+            let t13 = self.13.into_tree();
+            let t14 = self.14.into_tree();
+            let t15 = self.15.into_tree();
+            let source = [
+                t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15,
+            ];
+            TreeIterator::new(source)
+        }
+    }
 }
