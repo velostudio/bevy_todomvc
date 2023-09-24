@@ -1,23 +1,29 @@
 #![allow(clippy::type_complexity)]
 
-use bevy::prelude::*;
+use bevy::{prelude::*, window::PrimaryWindow};
+use bevy_cosmic_edit::*;
 use tree_builder::EntityTreeExt;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_plugins(CosmicEditPlugin::default())
         .add_event::<ModelTodoAction>()
         .add_event::<ModelInputAction>()
         .add_event::<SetFocus>()
         .init_resource::<Focus>()
         .add_systems(Startup, setup)
         .add_systems(Startup, setup_ui)
-        .add_systems(PreUpdate, handle_typing.before(handle_focus))
         .add_systems(PreUpdate, handle_deleter_interaction.before(handle_focus))
-        .add_systems(PreUpdate, handle_enter.before(handle_focus))
         .add_systems(PreUpdate, handle_checkmark_interaction.before(handle_focus))
         .add_systems(PreUpdate, handle_text_interaction.before(handle_focus))
         .add_systems(PreUpdate, handle_input_interaction.before(handle_focus))
+        .add_systems(
+            PreUpdate,
+            (handle_cosmic_change, handle_enter)
+                .chain()
+                .before(handle_focus),
+        )
         .add_systems(PreUpdate, handle_focus)
         .add_systems(Update, update_todo_model)
         .add_systems(Update, update_input_model)
@@ -36,12 +42,21 @@ fn main() {
             Update,
             update_displayed_input_text.after(update_input_model),
         )
+        .add_systems(
+            Update,
+            update_focus_main_input
+                .after(update_input_model)
+                .after(update_todo_model),
+        )
+        .add_systems(
+            Update,
+            update_focus_todo
+                .after(update_input_model)
+                .after(update_todo_model),
+        )
         .add_systems(PostUpdate, remove_displayed_todos)
         .run();
 }
-
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct Focus(pub Option<Entity>);
 
 #[derive(Event)]
 struct SetFocus(Option<Entity>);
@@ -83,7 +98,21 @@ fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAct
         .id();
 
     let todo_input_container = commands
-        .spawn((NodeBundle::default(), markers::TodoInputContainer))
+        .spawn((
+            NodeBundle {
+                style: Style {
+                    justify_content: JustifyContent::Start,
+                    overflow: Overflow::clip(),
+                    align_items: AlignItems::Start,
+                    margin: UiRect::all(Val::Px(10.)),
+                    min_width: Val::Px(500.),
+                    height: Val::Px(40.),
+                    ..default()
+                },
+                ..default()
+            },
+            markers::TodoInputContainer,
+        ))
         .id();
 
     let todo_list = commands
@@ -172,35 +201,19 @@ fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAct
         ))
         .id();
 
-    // app_main
-    // - app_title
-    // - todo_main
-    //   - todo_input_container
-    //   - todo_list
-    //   - todo_footer
-    //     - todo_items_left
-    //     - todo_filters
-    //     - todo_filter_all_btn
-    //       - todo_filter_all_txt
-    //     - todo_filter_active_btn
-    //       - todo_filter_active_txt
-    //     - todo_filter_completed_btn
-    //       - todo_filter_completed_txt
-    //     - todo_clear_completed_btn
-    //       - todo_clear_completed_txt
     app_main
-        .t((
+        .tree((
             app_title,
-            todo_main.t((
+            todo_main.tree((
                 todo_input_container,
                 todo_list,
-                todo_footer.t((
-                    todo_items_left.t(()),
-                    todo_filters.t(()),
-                    todo_filter_all_btn.t(todo_filter_all_txt),
-                    todo_filter_active_btn.t(todo_filter_active_txt),
-                    todo_filter_completed_btn.t(todo_filter_completed_txt),
-                    todo_clear_completed_btn.t(todo_clear_completed_txt),
+                todo_footer.tree((
+                    todo_items_left,
+                    todo_filters,
+                    todo_filter_all_btn.tree(todo_filter_all_txt),
+                    todo_filter_active_btn.tree(todo_filter_active_txt),
+                    todo_filter_completed_btn.tree(todo_filter_completed_txt),
+                    todo_clear_completed_btn.tree(todo_clear_completed_txt),
                 )),
             )),
         ))
@@ -209,59 +222,73 @@ fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAct
     input_actions.send(ModelInputAction::Create("".to_string()));
 }
 
-/// Interaction -> Event<ModelTodoAction> + Event<SetFocus>
+/// Interaction -> Event<ModelTodoAction>
 fn handle_deleter_interaction(
     mut delete_interaction_q: Query<
         (&Interaction, &View),
         (Changed<Interaction>, With<markers::TodoDeleterView>),
     >,
     mut actions: EventWriter<ModelTodoAction>,
-    mut set_focus: EventWriter<SetFocus>,
 ) {
     for (interaction, view) in delete_interaction_q.iter_mut() {
         if *interaction == Interaction::Pressed {
             actions.send(ModelTodoAction::Delete(view.0));
-            set_focus.send(SetFocus(None));
         }
     }
 }
 
-/// Interaction -> Event<SetFocus>
+/// Interaction -> Event<ModelTodoAction> +  Event<ModelInputAction>
 fn handle_text_interaction(
     mut check_interaction_q: Query<
-        (&Interaction, Entity),
+        (&Interaction, &View),
         (Changed<Interaction>, With<markers::TodoTextView>),
     >,
-    mut todo_text_q: Query<(Entity, &Parent), (With<Text>, With<markers::TodoTextView>)>,
-    mut set_focus: EventWriter<SetFocus>,
+    todo_model: Query<(&ModelTodoEdit, Entity), ModelOnly>,
+    input_model: Query<(&ModelInputEdit, Entity), ModelOnly>,
+    mut todo_actions: EventWriter<ModelTodoAction>,
+    mut input_actions: EventWriter<ModelInputAction>,
 ) {
-    for (interaction, clicked_entity) in check_interaction_q.iter_mut() {
+    for (interaction, view) in check_interaction_q.iter_mut() {
         if *interaction == Interaction::Pressed {
-            for (entity, parent) in todo_text_q.iter_mut() {
-                if parent.get() == clicked_entity {
-                    set_focus.send(SetFocus(Some(entity)));
+            for (todo_edit, todo_entity) in todo_model.iter() {
+                if todo_edit.0 {
+                    todo_actions.send(ModelTodoAction::Edit(todo_entity, false));
                 }
             }
+            for (input_edit, todo_entity) in input_model.iter() {
+                if input_edit.0 {
+                    input_actions.send(ModelInputAction::Edit(todo_entity, false));
+                }
+            }
+            todo_actions.send(ModelTodoAction::Edit(view.0, true));
         }
     }
 }
 
-/// Interaction -> Event<SetFocus>
+/// Interaction -> Event<ModelTodoAction> +  Event<ModelInputAction>
 fn handle_input_interaction(
     mut check_interaction_q: Query<
-        (&Interaction, Entity),
+        (&Interaction, &View),
         (Changed<Interaction>, With<markers::TodoInput>),
     >,
-    todo_text_q: Query<(Entity, &Parent), (With<Text>, With<markers::TodoInput>)>,
-    mut set_focus: EventWriter<SetFocus>,
+    todo_model: Query<(&ModelTodoEdit, Entity), ModelOnly>,
+    input_model: Query<(&ModelInputEdit, Entity), ModelOnly>,
+    mut todo_actions: EventWriter<ModelTodoAction>,
+    mut input_actions: EventWriter<ModelInputAction>,
 ) {
-    for (interaction, clicked_entity) in check_interaction_q.iter_mut() {
+    for (interaction, view) in check_interaction_q.iter_mut() {
         if *interaction == Interaction::Pressed {
-            for (entity, parent) in todo_text_q.iter() {
-                if parent.get() == clicked_entity {
-                    set_focus.send(SetFocus(Some(entity)));
+            for (todo_edit, todo_entity) in todo_model.iter() {
+                if todo_edit.0 {
+                    todo_actions.send(ModelTodoAction::Edit(todo_entity, false));
                 }
             }
+            for (input_edit, input_entity) in input_model.iter() {
+                if input_edit.0 {
+                    input_actions.send(ModelInputAction::Edit(input_entity, false));
+                }
+            }
+            input_actions.send(ModelInputAction::Edit(view.0, true));
         }
     }
 }
@@ -285,24 +312,23 @@ fn handle_checkmark_interaction(
     }
 }
 
-/// Input<KeyCode> + Res<Focus> -> Event<ModelTodoAction>
+/// Input<KeyCode> + Res<Focus> -> Event<ModelTodoAction> + Event<ModelInputAction>
 ///
 /// But this system also directly updates the `Text` which it probably shouldn't (consider splitting)
 fn handle_enter(
-    mut actions: EventWriter<ModelTodoAction>,
-    mut todo_input_q: Query<&mut Text, With<markers::TodoInput>>,
     keys: Res<Input<KeyCode>>,
     focus: Res<Focus>,
+    mut todo_actions: EventWriter<ModelTodoAction>,
+    mut input_actions: EventWriter<ModelInputAction>,
+    mut todo_input_q: Query<(&CosmicEditor, &View), With<markers::TodoInput>>,
 ) {
     let Some(focus) = **focus else {
         return;
     };
     if keys.just_pressed(KeyCode::Return) {
-        if let Ok(mut todo_input_text) = todo_input_q.get_mut(focus) {
-            actions.send(ModelTodoAction::Create(
-                todo_input_text.sections[0].value.clone(),
-            ));
-            todo_input_text.sections[0].value = "".to_string();
+        if let Ok((editor, view)) = todo_input_q.get_mut(focus) {
+            todo_actions.send(ModelTodoAction::Create(editor.get_text()));
+            input_actions.send(ModelInputAction::UpdateText(view.0, "".to_string()));
         }
     }
 }
@@ -318,38 +344,20 @@ fn handle_focus(mut set_focus_events: EventReader<SetFocus>, mut focus: ResMut<F
 ///
 /// We want the equivalent of JS `input.addEventListener('oninput', (e) => { model.value = e.target.value })`
 ///
-/// Event<ReceivedCharacter> -> Event<ModelInputAction> + Event<ModelTodoAction>
-///
-/// But this system also directly updates the `Text` which it probably shouldn't (consider splitting)
-fn handle_typing(
-    mut evr_char: EventReader<ReceivedCharacter>,
-    focus: Res<Focus>,
-    todo_text_q: Query<(&Text, &View), With<markers::TodoTextView>>,
-    mut todo_input_q: Query<
-        (&Text, &View),
-        (With<markers::TodoInput>, Without<markers::TodoTextView>),
-    >,
+/// Event<CosmicTextChanged> -> Event<ModelInputAction> + Event<ModelTodoAction>
+fn handle_cosmic_change(
+    mut evr_cosmic: EventReader<CosmicTextChanged>,
+    todo_text_q: Query<&View, With<markers::TodoTextView>>,
+    mut todo_input_q: Query<&View, (With<markers::TodoInput>, Without<markers::TodoTextView>)>,
     mut todo_actions: EventWriter<ModelTodoAction>,
     mut input_actions: EventWriter<ModelInputAction>,
 ) {
-    let Some(focus) = **focus else {
-        return;
-    };
-    for ev in evr_char.iter() {
-        if !ev.char.is_control() {
-            if let Ok((text, view)) = todo_input_q.get_mut(focus) {
-                input_actions.send(ModelInputAction::UpdateText(
-                    view.0,
-                    format!("{}{}", text.sections[0].value, ev.char),
-                ));
-            }
-
-            if let Ok((text, view)) = todo_text_q.get(focus) {
-                todo_actions.send(ModelTodoAction::UpdateText(
-                    view.0,
-                    format!("{}{}", text.sections[0].value, ev.char),
-                ));
-            }
+    for ev in evr_cosmic.iter() {
+        if let Ok(view) = todo_text_q.get(ev.0 .0) {
+            todo_actions.send(ModelTodoAction::UpdateText(view.0, ev.0 .1.clone()));
+        }
+        if let Ok(view) = todo_input_q.get_mut(ev.0 .0) {
+            input_actions.send(ModelInputAction::UpdateText(view.0, ev.0 .1.clone()));
         }
     }
 }
@@ -397,14 +405,18 @@ fn update_input_model(
     mut commands: Commands,
     mut actions: EventReader<ModelInputAction>,
     mut input_text: Query<&mut ModelInputText, ModelOnly>,
+    mut input_edit: Query<&mut ModelInputEdit, ModelOnly>,
 ) {
     for action in actions.iter() {
         match action {
             ModelInputAction::Create(text) => {
-                commands.spawn((ModelInputText(text.clone()), Model));
+                commands.spawn((ModelInputText(text.clone()), ModelInputEdit(true), Model));
             }
             ModelInputAction::UpdateText(e, text) => {
                 input_text.get_mut(*e).unwrap().0 = text.clone();
+            }
+            ModelInputAction::Edit(e, edit) => {
+                input_edit.get_mut(*e).unwrap().0 = *edit;
             }
         }
     }
@@ -419,34 +431,36 @@ fn display_text_input(
     todo_input_container: Query<Entity, With<markers::TodoInputContainer>>,
     mut commands: Commands,
     mut set_focus: EventWriter<SetFocus>,
+    windows: Query<&Window, With<PrimaryWindow>>,
 ) {
     let todo_input_container = todo_input_container.single();
     for (model_entity, input) in inputs.iter() {
-        let todo_input = commands
+        let primary_window = windows.single();
+        let text_color = text_styles::todo().color;
+        let attrs = AttrsOwned::new(Attrs::new().color(bevy_color_to_cosmic(text_color)));
+        let todo_input_btn = commands
             .spawn((
-                ButtonBundle {
+                CosmicEditUiBundle {
+                    background_color: Color::WHITE.into(),
+                    #[cfg(feature = "debug")]
                     border_color: Color::GREEN.into(),
                     style: Style {
-                        justify_content: JustifyContent::Center,
-                        overflow: Overflow::clip(),
-                        align_items: AlignItems::Center,
-                        margin: UiRect::all(Val::Px(10.)),
-                        min_width: Val::Percent(100.),
                         height: Val::Px(40.),
+                        padding: UiRect::all(Val::Px(10.)),
+                        width: Val::Percent(100.),
                         border: UiRect::all(Val::Px(4.)),
                         ..default()
                     },
-                    background_color: Color::NONE.into(),
-                    ..default()
-                },
-                View(model_entity),
-                markers::TodoInput,
-            ))
-            .id();
-        let todo_input_text = commands
-            .spawn((
-                TextBundle {
-                    text: Text::from_section(input.0.clone(), text_styles::todo()),
+                    cosmic_attrs: CosmicAttrs(attrs.clone()),
+                    cosmic_metrics: CosmicMetrics {
+                        font_size: text_styles::todo().font_size,
+                        line_height: text_styles::todo().font_size * 1.2,
+                        scale_factor: primary_window.scale_factor() as f32,
+                    },
+                    max_lines: CosmicMaxLines(1),
+                    max_chars: CosmicMaxChars(25), // TODO: can be remove after: https://github.com/StaffEngineer/bevy_cosmic_edit/issues/48
+                    text: CosmicText::OneStyle(input.0.clone()),
+                    text_position: CosmicTextPosition::Center, // TODO: implement CenterLeft: https://github.com/StaffEngineer/bevy_cosmic_edit/issues/51
                     ..default()
                 },
                 View(model_entity),
@@ -454,13 +468,10 @@ fn display_text_input(
             ))
             .id();
 
-        // - todo_input_container
-        //   - todo_input
-        //      - todo_input_text
         todo_input_container
-            .t(todo_input.t(todo_input_text))
+            .tree(todo_input_btn)
             .build(&mut commands);
-        set_focus.send(SetFocus(Some(todo_input_text)));
+        set_focus.send(SetFocus(Some(todo_input_btn)));
     }
 }
 
@@ -484,6 +495,7 @@ fn display_todos(
     >,
     todo_list_q: Query<Entity, With<markers::TodoList>>,
     mut commands: Commands,
+    windows: Query<&Window, With<PrimaryWindow>>,
 ) {
     // an outer reference
     let todo_list = todo_list_q.single();
@@ -545,38 +557,35 @@ fn display_todos(
                 markers::TodoCheckmarkView,
             ))
             .id();
+
+        let text_color = text_styles::todo().color;
+        let attrs = AttrsOwned::new(Attrs::new().color(bevy_color_to_cosmic(text_color)));
+        let primary_window = windows.single();
         let todo_text_btn = commands
             .spawn((
-                ButtonBundle {
-                    #[cfg(feature = "debug")]
-                    background_color: Color::GREEN.into(),
+                CosmicEditUiBundle {
+                    background_color: Color::WHITE.into(),
                     style: Style {
+                        border: UiRect::all(Val::Px(2.)),
                         width: Val::Percent(100.),
                         height: Val::Px(40.),
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
                         ..default()
                     },
+                    cosmic_attrs: CosmicAttrs(attrs.clone()),
+                    cosmic_metrics: CosmicMetrics {
+                        font_size: text_styles::todo().font_size,
+                        line_height: text_styles::todo().font_size * 1.2,
+                        scale_factor: primary_window.scale_factor() as f32,
+                    },
+                    max_lines: CosmicMaxLines(1),
+                    max_chars: CosmicMaxChars(25), // TODO: can be remove after: https://github.com/StaffEngineer/bevy_cosmic_edit/issues/48
+                    text: CosmicText::OneStyle(todo.0.clone()),
+                    text_position: CosmicTextPosition::Center, // TODO: implement CenterLeft: https://github.com/StaffEngineer/bevy_cosmic_edit/issues/51
                     ..default()
                 },
                 View(model_entity),
                 markers::TodoTextView,
-            ))
-            .id();
-        let todo_text_txt = commands
-            .spawn((
-                TextBundle {
-                    #[cfg(feature = "debug")]
-                    background_color: Color::GOLD.into(),
-                    style: Style {
-                        flex_grow: 1.0,
-                        ..default()
-                    },
-                    text: Text::from_section(&todo.0, text_styles::todo()),
-                    ..default()
-                },
-                View(model_entity),
-                markers::TodoTextView,
+                ReadOnly,
             ))
             .id();
 
@@ -600,6 +609,7 @@ fn display_todos(
                     },
                     ..default()
                 },
+                ReadOnly,
                 View(model_entity),
                 markers::TodoDeleterView,
             ))
@@ -616,20 +626,11 @@ fn display_todos(
             ))
             .id();
 
-        // assembling and inserting a view
-        // todo_list
-        // - [todo_item]
-        //   - todo_check_btn
-        //      - todo_check_txt
-        //   - todo_text_btn
-        //      - todo_text_txt
-        //   - todo_delete_btn
-        //      - todo_delete_txt
         todo_list
-            .t(todo_item.t((
-                todo_check_btn.t(todo_check_txt),
-                todo_text_btn.t(todo_text_txt),
-                todo_delete_btn.t(todo_delete_txt),
+            .tree(todo_item.tree((
+                todo_check_btn.tree(todo_check_txt),
+                todo_text_btn,
+                todo_delete_btn.tree(todo_delete_txt),
             )))
             .build(&mut commands);
     }
@@ -640,15 +641,24 @@ fn display_todos(
 /// ModelTodoText -> View
 fn update_displayed_todos_text(
     todos_text: Query<&ModelTodoText, (Changed<ModelTodoText>, ModelOnly)>,
-    mut views: Query<(&mut Text, &View), (With<markers::TodoTextView>, ViewOnly)>,
+    mut views: Query<(&mut CosmicText, &View), (With<markers::TodoTextView>, ViewOnly)>,
 ) {
     // outer loop, library-provided
     for (mut text, view) in views.iter_mut() {
         if let Ok(todo) = todos_text.get(view.0) {
             // inner logic, user-provided
-            text.sections[0].value = todo.0.clone();
+            *text = CosmicText::OneStyle(todo.0.clone());
         }
     }
+}
+
+pub fn bevy_color_to_cosmic(color: bevy::prelude::Color) -> CosmicColor {
+    CosmicColor::rgba(
+        (color.r() * 255.) as u8,
+        (color.g() * 255.) as u8,
+        (color.b() * 255.) as u8,
+        (color.a() * 255.) as u8,
+    )
 }
 
 /// these updates are push-based but we kinda want pull-based from an authoring perspective
@@ -661,22 +671,33 @@ fn update_displayed_todos_text(
 ///
 /// ModelTodoChecked -> View
 fn update_displayed_todos_text_checked(
-    model_todo_checked: Query<&ModelTodoChecked, (Changed<ModelTodoChecked>, ModelOnly)>,
-    mut views: Query<(&mut Text, &View), (ViewOnly, With<markers::TodoTextView>)>,
+    model_todo_checked: Query<
+        (&ModelTodoChecked, &ModelTodoText),
+        (Changed<ModelTodoChecked>, ModelOnly),
+    >,
+    mut views: Query<
+        (&mut CosmicAttrs, &mut CosmicText, &View),
+        (ViewOnly, With<markers::TodoTextView>),
+    >,
 ) {
     // outer loop, library-provided
-    for (mut text, view) in views.iter_mut() {
-        if let Ok(checked) = model_todo_checked.get(view.0) {
+    for (mut attrs, mut cosmic_text, view) in views.iter_mut() {
+        if let Ok((checked, text)) = model_todo_checked.get(view.0) {
             // inner logic, user-provided
-            text.sections[0].style.color = if checked.0 {
-                colors::todo_list_item_completed_color()
+            attrs.0.color_opt = if checked.0 {
+                Some(bevy_color_to_cosmic(
+                    colors::todo_list_item_completed_color(),
+                ))
             } else {
-                colors::body_color()
+                Some(bevy_color_to_cosmic(colors::body_color()))
             };
+            // TODO: Remove this hack. This is done for updating colors immediately. Figure out why set_redraw to true doesn't work in this case.
+            *cosmic_text = CosmicText::OneStyle(text.0.clone());
         }
     }
 }
 
+// ModelTodoChecked -> View
 fn update_displayed_todos_checkmark_checked(
     model_todo_checked: Query<&ModelTodoChecked, (Changed<ModelTodoChecked>, ModelOnly)>,
     mut views: Query<(&mut Text, &View), (ViewOnly, With<markers::TodoCheckmarkView>)>,
@@ -695,24 +716,71 @@ fn update_displayed_todos_checkmark_checked(
 /// ModelInputText -> View
 fn update_displayed_input_text(
     model_input_text: Query<&ModelInputText, (Changed<ModelInputText>, ModelOnly)>,
-    mut views: Query<(&mut Text, &View), (With<markers::TodoInput>, ViewOnly)>,
+    mut views: Query<(&mut CosmicText, &View), (With<markers::TodoInput>, ViewOnly)>,
 ) {
     // outer loop, library-provided
     for (mut text, view) in views.iter_mut() {
         if let Ok(todo) = model_input_text.get(view.0) {
             // inner logic, user-provided
-            text.sections[0].value = todo.0.clone();
+            *text = CosmicText::OneStyle(todo.0.clone());
+        }
+    }
+}
+
+// ModelInputEdit -> View + Event<SetFocus>
+fn update_focus_main_input(
+    model_input_edit: Query<(&ModelInputEdit, Entity), (Changed<ModelInputEdit>, ModelOnly)>,
+    views: Query<(Entity, &View), (ViewOnly, With<markers::TodoInput>)>,
+    mut set_focus: EventWriter<SetFocus>,
+    mut commands: Commands,
+) {
+    let models_to_views = views
+        .iter()
+        .map(|(entity, view)| (view.0, entity))
+        .collect::<std::collections::HashMap<_, _>>();
+    for (edit, model_entity) in model_input_edit.iter() {
+        if let Some(view_entity) = models_to_views.get(&model_entity) {
+            if edit.0 {
+                commands.entity(*view_entity).remove::<ReadOnly>();
+            } else {
+                commands.entity(*view_entity).insert(ReadOnly);
+            }
+            set_focus.send(SetFocus(Some(*view_entity)));
+        }
+    }
+}
+
+// ModelInputEdit -> View + Event<SetFocus>
+fn update_focus_todo(
+    model_todo_edit: Query<(&ModelTodoEdit, Entity), (Changed<ModelTodoEdit>, ModelOnly)>,
+    views: Query<(Entity, &View), (ViewOnly, With<markers::TodoTextView>)>,
+    mut set_focus: EventWriter<SetFocus>,
+    mut commands: Commands,
+) {
+    let models_to_views = views
+        .iter()
+        .map(|(entity, view)| (view.0, entity))
+        .collect::<std::collections::HashMap<_, _>>();
+    for (edit, model_entity) in model_todo_edit.iter() {
+        if let Some(view_entity) = models_to_views.get(&model_entity) {
+            if edit.0 {
+                commands.entity(*view_entity).remove::<ReadOnly>();
+            } else {
+                commands.entity(*view_entity).insert(ReadOnly);
+            }
+            set_focus.send(SetFocus(Some(*view_entity)));
         }
     }
 }
 
 /// Whenever a model is removed, views that depend on it are updated
 ///
-/// Model -> View
+/// Model -> View + Event<SetFocus>
 fn remove_displayed_todos(
     mut removed: RemovedComponents<Model>,
     views: Query<(Entity, &View), (ViewOnly, With<markers::TodoRootView>)>,
     mut commands: Commands,
+    mut set_focus: EventWriter<SetFocus>,
 ) {
     let models_to_views = views
         .iter()
@@ -721,6 +789,7 @@ fn remove_displayed_todos(
     for model_entity in removed.iter() {
         if let Some(view_entity) = models_to_views.get(&model_entity) {
             commands.entity(*view_entity).despawn_recursive();
+            set_focus.send(SetFocus(None));
         }
     }
 }
@@ -810,15 +879,19 @@ struct ModelTodoEdit(bool);
 /// Components are a stand-in for properties.
 /// Events are a stand-in for methods.
 /// Entities are a stand-in for references.
-#[derive(Event)]
+#[derive(Event, Debug)]
 enum ModelInputAction {
     Create(String),
     UpdateText(ModelInputEntity, String),
+    Edit(ModelInputEntity, bool),
 }
 
 /// See [`ModelInputAction`].
 #[derive(Component)]
 struct ModelInputText(String);
+
+#[derive(Component)]
+struct ModelInputEdit(bool);
 
 /// https://todomvc.com/examples/vanillajs/node_modules/todomvc-app-css/index.css
 ///
@@ -990,7 +1063,7 @@ mod text_styles {
 
     pub fn todo() -> TextStyle {
         TextStyle {
-            font_size: 24.0 * 1.2,
+            font_size: 24.0,
             color: colors::body_color(),
             ..default()
         }
@@ -1251,7 +1324,7 @@ mod tree_builder {
         }
     }
     pub trait EntityTreeExt {
-        fn t<T, S, I>(self, children: T) -> Tree
+        fn tree<T, S, I>(self, children: T) -> Tree
         where
             // T is the thing that becomes an iterator over `Tree`s, e.g. `(Entity, Entity)`
             T: IntoTreeIterator<IterableStorage = S>,
@@ -1322,7 +1395,7 @@ mod tree_builder {
         /// ))
         /// .build(&mut commands);
         /// ```
-        fn t<T, S, I>(self, children: T) -> Tree
+        fn tree<T, S, I>(self, children: T) -> Tree
         where
             T: IntoTreeIterator<IterableStorage = S>,
             S: IntoIterator<IntoIter = I>,

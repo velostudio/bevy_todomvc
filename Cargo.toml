@@ -7,6 +7,6 @@ edition = "2021"
 
 [dependencies]
 bevy = { version = "0.11.1", features = ["dynamic_linking"] }
-
+bevy_cosmic_edit = { git = "https://github.com/StaffEngineer/bevy_cosmic_edit", version = "0.13.0" }
 [features]
 debug = []
