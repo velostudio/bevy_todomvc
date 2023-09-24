@@ -1,12 +1,28 @@
 #![allow(clippy::type_complexity)]
 
-use bevy::{prelude::*, window::PrimaryWindow};
+use bevy::{
+    prelude::*,
+    window::{PresentMode, PrimaryWindow},
+};
 use bevy_cosmic_edit::*;
 use tree_builder::EntityTreeExt;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "bevy • TodoMVC".into(),
+                        present_mode: PresentMode::AutoVsync,
+                        fit_canvas_to_parent: true,
+                        prevent_default_event_handling: false,
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .build(),
+        )
         .add_plugins(CosmicEditPlugin::default())
         .add_event::<ModelTodoAction>()
         .add_event::<ModelInputAction>()
@@ -18,12 +34,8 @@ fn main() {
         .add_systems(PreUpdate, handle_checkmark_interaction.before(handle_focus))
         .add_systems(PreUpdate, handle_text_interaction.before(handle_focus))
         .add_systems(PreUpdate, handle_input_interaction.before(handle_focus))
-        .add_systems(
-            PreUpdate,
-            (handle_cosmic_change, handle_enter)
-                .chain()
-                .before(handle_focus),
-        )
+        .add_systems(PreUpdate, handle_enter.before(handle_focus))
+        .add_systems(PreUpdate, handle_cosmic_change.before(handle_focus))
         .add_systems(PreUpdate, handle_focus)
         .add_systems(Update, update_todo_model)
         .add_systems(Update, update_input_model)
@@ -62,6 +74,8 @@ fn main() {
 struct SetFocus(Option<Entity>);
 
 fn setup(mut commands: Commands) {
+    #[cfg(target_arch = "wasm32")]
+    console_error_panic_hook::set_once();
     commands.spawn(Camera2dBundle::default());
 }
 
@@ -458,9 +472,9 @@ fn display_text_input(
                         scale_factor: primary_window.scale_factor() as f32,
                     },
                     max_lines: CosmicMaxLines(1),
-                    max_chars: CosmicMaxChars(25), // TODO: can be remove after: https://github.com/StaffEngineer/bevy_cosmic_edit/issues/48
+                    max_chars: CosmicMaxChars(25), // TODO: consider removing after https://github.com/StaffEngineer/bevy_cosmic_edit/issues/48
                     text: CosmicText::OneStyle(input.0.clone()),
-                    text_position: CosmicTextPosition::Center, // TODO: implement CenterLeft: https://github.com/StaffEngineer/bevy_cosmic_edit/issues/51
+                    text_position: CosmicTextPosition::Center, // TODO: implement CenterLeft https://github.com/StaffEngineer/bevy_cosmic_edit/issues/51
                     ..default()
                 },
                 View(model_entity),
@@ -578,9 +592,9 @@ fn display_todos(
                         scale_factor: primary_window.scale_factor() as f32,
                     },
                     max_lines: CosmicMaxLines(1),
-                    max_chars: CosmicMaxChars(25), // TODO: can be remove after: https://github.com/StaffEngineer/bevy_cosmic_edit/issues/48
+                    max_chars: CosmicMaxChars(25), // TODO: consider removing after https://github.com/StaffEngineer/bevy_cosmic_edit/issues/48
                     text: CosmicText::OneStyle(todo.0.clone()),
-                    text_position: CosmicTextPosition::Center, // TODO: implement CenterLeft: https://github.com/StaffEngineer/bevy_cosmic_edit/issues/51
+                    text_position: CosmicTextPosition::Center, // TODO: implement CenterLeft https://github.com/StaffEngineer/bevy_cosmic_edit/issues/51
                     ..default()
                 },
                 View(model_entity),
