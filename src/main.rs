@@ -764,7 +764,7 @@ fn update_focus_main_input(
     }
 }
 
-// ModelInputEdit -> View + Event<SetFocus>
+// ModelTodoEdit -> View + Event<SetFocus>
 fn update_focus_todo(
     model_todo_edit: Query<(&ModelTodoEdit, Entity), (Changed<ModelTodoEdit>, ModelOnly)>,
     views: Query<(Entity, &View), (ViewOnly, With<markers::TodoTextView>)>,

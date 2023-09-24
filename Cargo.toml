@@ -5,13 +5,20 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+# Enable max optimizations for dependencies, but not for our code:
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 'z'
+
 [dependencies]
 bevy = { version = "0.11.1" }
 bevy_cosmic_edit = { git = "https://github.com/StaffEngineer/bevy_cosmic_edit", version = "0.13.0" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3.61"
-wasm-bindgen = "=0.2.86"
+wasm-bindgen = "0.2.86"
 console_error_panic_hook = "0.1.7"
 
 [features]
