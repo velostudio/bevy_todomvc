@@ -35,7 +35,7 @@ fn main() {
         .add_systems(PreUpdate, handle_text_interaction.before(handle_focus))
         .add_systems(PreUpdate, handle_input_interaction.before(handle_focus))
         .add_systems(PreUpdate, handle_enter.before(handle_focus))
-        .add_systems(PreUpdate, handle_cosmic_change.before(handle_focus))
+        .add_systems(PreUpdate, handle_cosmic_change)
         .add_systems(PreUpdate, handle_focus)
         .add_systems(Update, update_todo_model)
         .add_systems(Update, update_input_model)
@@ -265,6 +265,12 @@ fn handle_text_interaction(
     for (interaction, view) in check_interaction_q.iter_mut() {
         if *interaction == Interaction::Pressed {
             for (todo_edit, todo_entity) in todo_model.iter() {
+                if todo_entity == view.0 {
+                    if !todo_edit.0 {
+                        todo_actions.send(ModelTodoAction::Edit(view.0, true));
+                    }
+                    continue;
+                }
                 if todo_edit.0 {
                     todo_actions.send(ModelTodoAction::Edit(todo_entity, false));
                 }
@@ -274,7 +280,6 @@ fn handle_text_interaction(
                     input_actions.send(ModelInputAction::Edit(todo_entity, false));
                 }
             }
-            todo_actions.send(ModelTodoAction::Edit(view.0, true));
         }
     }
 }
@@ -298,11 +303,16 @@ fn handle_input_interaction(
                 }
             }
             for (input_edit, input_entity) in input_model.iter() {
+                if input_entity == view.0 {
+                    if !input_edit.0 {
+                        input_actions.send(ModelInputAction::Edit(view.0, true));
+                    }
+                    continue;
+                }
                 if input_edit.0 {
                     input_actions.send(ModelInputAction::Edit(input_entity, false));
                 }
             }
-            input_actions.send(ModelInputAction::Edit(view.0, true));
         }
     }
 }
@@ -335,6 +345,7 @@ fn handle_enter(
     mut todo_actions: EventWriter<ModelTodoAction>,
     mut input_actions: EventWriter<ModelInputAction>,
     mut todo_input_q: Query<(&CosmicEditor, &View), With<markers::TodoInput>>,
+    mut todo_q: Query<&View, With<markers::TodoTextView>>,
 ) {
     let Some(focus) = **focus else {
         return;
@@ -343,6 +354,9 @@ fn handle_enter(
         if let Ok((editor, view)) = todo_input_q.get_mut(focus) {
             todo_actions.send(ModelTodoAction::Create(editor.get_text()));
             input_actions.send(ModelInputAction::UpdateText(view.0, "".to_string()));
+        }
+        if let Ok(view) = todo_q.get_mut(focus) {
+            todo_actions.send(ModelTodoAction::Edit(view.0, false));
         }
     }
 }
@@ -371,6 +385,9 @@ fn handle_cosmic_change(
             todo_actions.send(ModelTodoAction::UpdateText(view.0, ev.0 .1.clone()));
         }
         if let Ok(view) = todo_input_q.get_mut(ev.0 .0) {
+            if ev.0 .1.clone().ends_with('\n') {
+                continue;
+            }
             input_actions.send(ModelInputAction::UpdateText(view.0, ev.0 .1.clone()));
         }
     }
@@ -455,7 +472,7 @@ fn display_text_input(
         let todo_input_btn = commands
             .spawn((
                 CosmicEditUiBundle {
-                    background_color: Color::WHITE.into(),
+                    fill_color: FillColor(Color::WHITE),
                     #[cfg(feature = "debug")]
                     border_color: Color::GREEN.into(),
                     style: Style {
@@ -471,10 +488,9 @@ fn display_text_input(
                         line_height: text_styles::todo().font_size * 1.2,
                         scale_factor: primary_window.scale_factor() as f32,
                     },
-                    max_lines: CosmicMaxLines(1),
-                    max_chars: CosmicMaxChars(25), // TODO: consider removing after https://github.com/StaffEngineer/bevy_cosmic_edit/issues/48
-                    text: CosmicText::OneStyle(input.0.clone()),
-                    text_position: CosmicTextPosition::Center, // TODO: implement CenterLeft https://github.com/StaffEngineer/bevy_cosmic_edit/issues/51
+                    text_setter: CosmicText::OneStyle(input.0.clone()),
+                    text_position: CosmicTextPosition::Left { padding: 15 },
+                    mode: CosmicMode::InfiniteLine,
                     ..default()
                 },
                 View(model_entity),
@@ -522,9 +538,9 @@ fn display_todos(
                     #[cfg(feature = "debug")]
                     background_color: Color::RED.into(),
                     style: Style {
+                        border: UiRect::all(Val::Px(2.0)),
                         justify_content: JustifyContent::SpaceBetween,
                         align_items: AlignItems::Center,
-                        border: UiRect::bottom(Val::Px(1.0)),
                         width: Val::Percent(100.),
                         ..default()
                     },
@@ -546,7 +562,6 @@ fn display_todos(
                         justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
                         overflow: Overflow::clip(),
-                        padding: UiRect::axes(Val::Auto, Val::Px(15.)),
                         ..default()
                     },
                     ..default()
@@ -578,9 +593,8 @@ fn display_todos(
         let todo_text_btn = commands
             .spawn((
                 CosmicEditUiBundle {
-                    background_color: Color::WHITE.into(),
+                    fill_color: FillColor(Color::WHITE.into()),
                     style: Style {
-                        border: UiRect::all(Val::Px(2.)),
                         width: Val::Percent(100.),
                         height: Val::Px(40.),
                         ..default()
@@ -591,10 +605,9 @@ fn display_todos(
                         line_height: text_styles::todo().font_size * 1.2,
                         scale_factor: primary_window.scale_factor() as f32,
                     },
-                    max_lines: CosmicMaxLines(1),
-                    max_chars: CosmicMaxChars(25), // TODO: consider removing after https://github.com/StaffEngineer/bevy_cosmic_edit/issues/48
-                    text: CosmicText::OneStyle(todo.0.clone()),
-                    text_position: CosmicTextPosition::Center, // TODO: implement CenterLeft https://github.com/StaffEngineer/bevy_cosmic_edit/issues/51
+                    text_setter: CosmicText::OneStyle(todo.0.clone()),
+                    text_position: CosmicTextPosition::Left { padding: 15 },
+                    mode: CosmicMode::AutoHeight,
                     ..default()
                 },
                 View(model_entity),
@@ -613,11 +626,6 @@ fn display_todos(
                         align_items: AlignItems::Center,
                         width: Val::Px(40.),
                         height: Val::Px(40.),
-                        margin: UiRect {
-                            left: Val::Px(10.),
-                            right: Val::Px(10.),
-                            ..default()
-                        },
                         overflow: Overflow::clip(),
                         ..default()
                     },
@@ -755,34 +763,178 @@ fn update_focus_main_input(
     for (edit, model_entity) in model_input_edit.iter() {
         if let Some(view_entity) = models_to_views.get(&model_entity) {
             if edit.0 {
+                set_focus.send(SetFocus(Some(*view_entity)));
                 commands.entity(*view_entity).remove::<ReadOnly>();
             } else {
                 commands.entity(*view_entity).insert(ReadOnly);
             }
-            set_focus.send(SetFocus(Some(*view_entity)));
         }
     }
 }
 
 // ModelTodoEdit -> View + Event<SetFocus>
 fn update_focus_todo(
-    model_todo_edit: Query<(&ModelTodoEdit, Entity), (Changed<ModelTodoEdit>, ModelOnly)>,
-    views: Query<(Entity, &View), (ViewOnly, With<markers::TodoTextView>)>,
+    model_todo_edit: Query<
+        (&ModelTodoEdit, &ModelTodoChecked, &ModelTodoText, Entity),
+        (Changed<ModelTodoEdit>, ModelOnly),
+    >,
+    root_views: Query<(Entity, &View), (ViewOnly, With<markers::TodoRootView>)>,
     mut set_focus: EventWriter<SetFocus>,
+    windows: Query<&Window, With<PrimaryWindow>>,
     mut commands: Commands,
 ) {
-    let models_to_views = views
+    let models_to_views = root_views
         .iter()
         .map(|(entity, view)| (view.0, entity))
         .collect::<std::collections::HashMap<_, _>>();
-    for (edit, model_entity) in model_todo_edit.iter() {
-        if let Some(view_entity) = models_to_views.get(&model_entity) {
+    for (edit, checked, text, model_entity) in model_todo_edit.iter() {
+        if let Some(root_view_entity) = models_to_views.get(&model_entity) {
+            commands.entity(*root_view_entity).despawn_descendants();
             if edit.0 {
-                commands.entity(*view_entity).remove::<ReadOnly>();
+                let text_color = text_styles::todo().color;
+                let attrs = AttrsOwned::new(Attrs::new().color(bevy_color_to_cosmic(text_color)));
+                let primary_window = windows.single();
+                let todo_text_btn = commands
+                    .spawn((
+                        CosmicEditUiBundle {
+                            fill_color: FillColor(Color::WHITE.into()),
+                            style: Style {
+                                border: UiRect::all(Val::Px(2.0)),
+                                margin: UiRect {
+                                    left: Val::Px(40.),
+                                    ..default()
+                                },
+                                width: Val::Percent(100.),
+                                height: Val::Px(55.),
+                                ..default()
+                            },
+                            border_color: Color::BLACK.into(),
+                            cosmic_attrs: CosmicAttrs(attrs.clone()),
+                            cosmic_metrics: CosmicMetrics {
+                                font_size: text_styles::todo().font_size,
+                                line_height: text_styles::todo().font_size * 1.2,
+                                scale_factor: primary_window.scale_factor() as f32,
+                            },
+                            text_setter: CosmicText::OneStyle(text.0.clone()),
+                            text_position: CosmicTextPosition::Left { padding: 15 },
+                            mode: CosmicMode::InfiniteLine,
+                            ..default()
+                        },
+                        View(model_entity),
+                        markers::TodoTextView,
+                    ))
+                    .id();
+                root_view_entity.tree(todo_text_btn).build(&mut commands);
+                set_focus.send(SetFocus(Some(todo_text_btn)));
             } else {
-                commands.entity(*view_entity).insert(ReadOnly);
+                let todo_check_btn = commands
+                    .spawn((
+                        ButtonBundle {
+                            #[cfg(feature = "debug")]
+                            background_color: Color::BLUE.into(),
+                            style: Style {
+                                width: Val::Px(40.),
+                                height: Val::Px(40.),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                overflow: Overflow::clip(),
+                                ..default()
+                            },
+                            ..default()
+                        },
+                        View(model_entity),
+                        markers::TodoCheckmarkView,
+                    ))
+                    .id();
+                let todo_check_txt = commands
+                    .spawn((
+                        TextBundle {
+                            #[cfg(feature = "debug")]
+                            background_color: Color::FUCHSIA.into(),
+                            text: Text::from_sections([
+                                TextSection::new("[", text_styles::todo()),
+                                TextSection::new("x", display_checked(checked)),
+                                TextSection::new("]", text_styles::todo()),
+                            ]),
+                            ..default()
+                        },
+                        View(model_entity),
+                        markers::TodoCheckmarkView,
+                    ))
+                    .id();
+
+                let attrs = AttrsOwned::new(Attrs::new().color(if checked.0 {
+                    bevy_color_to_cosmic(colors::todo_list_item_completed_color())
+                } else {
+                    bevy_color_to_cosmic(colors::body_color())
+                }));
+                let primary_window = windows.single();
+                let todo_text_btn = commands
+                    .spawn((
+                        CosmicEditUiBundle {
+                            fill_color: FillColor(Color::WHITE.into()),
+                            style: Style {
+                                width: Val::Percent(100.),
+                                height: Val::Px(40.),
+                                ..default()
+                            },
+                            cosmic_attrs: CosmicAttrs(attrs.clone()),
+                            cosmic_metrics: CosmicMetrics {
+                                font_size: text_styles::todo().font_size,
+                                line_height: text_styles::todo().font_size * 1.2,
+                                scale_factor: primary_window.scale_factor() as f32,
+                            },
+                            text_setter: CosmicText::OneStyle(text.0.clone()),
+                            text_position: CosmicTextPosition::Left { padding: 15 },
+                            mode: CosmicMode::AutoHeight,
+                            ..default()
+                        },
+                        View(model_entity),
+                        markers::TodoTextView,
+                        ReadOnly,
+                    ))
+                    .id();
+
+                let todo_delete_btn = commands
+                    .spawn((
+                        ButtonBundle {
+                            #[cfg(feature = "debug")]
+                            background_color: Color::YELLOW.into(),
+                            style: Style {
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                width: Val::Px(40.),
+                                height: Val::Px(40.),
+                                overflow: Overflow::clip(),
+                                ..default()
+                            },
+                            ..default()
+                        },
+                        ReadOnly,
+                        View(model_entity),
+                        markers::TodoDeleterView,
+                    ))
+                    .id();
+                let todo_delete_txt = commands
+                    .spawn((
+                        TextBundle {
+                            #[cfg(feature = "debug")]
+                            background_color: Color::TURQUOISE.into(),
+                            text: Text::from_section("x", text_styles::destroy()),
+                            ..default()
+                        },
+                        View(model_entity),
+                    ))
+                    .id();
+
+                root_view_entity
+                    .tree((
+                        todo_check_btn.tree(todo_check_txt),
+                        todo_text_btn,
+                        todo_delete_btn.tree(todo_delete_txt),
+                    ))
+                    .build(&mut commands);
             }
-            set_focus.send(SetFocus(Some(*view_entity)));
         }
     }
 }

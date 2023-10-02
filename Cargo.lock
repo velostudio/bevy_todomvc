@@ -467,8 +467,8 @@ dependencies = [
 
 [[package]]
 name = "bevy_cosmic_edit"
-version = "0.13.0"
-source = "git+https://github.com/StaffEngineer/bevy_cosmic_edit#d95ea90499d08c0b0859b40915a3230546be16f3"
+version = "0.14.0"
+source = "git+https://github.com/StaffEngineer/bevy_cosmic_edit#55afc68904965de1dfbdae47a9ceacb7b800d473"
 dependencies = [
  "arboard",
  "bevy",
