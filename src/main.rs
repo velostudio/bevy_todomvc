@@ -66,6 +66,8 @@ fn main() {
                 .after(update_input_model)
                 .after(update_todo_model),
         )
+        .add_systems(Update, update_count.after(update_todo_model))
+        .add_systems(Update, update_displayed_items_left.after(update_count))
         .add_systems(PostUpdate, remove_displayed_todos)
         .run();
 }
@@ -157,11 +159,15 @@ fn setup_ui(mut commands: Commands, mut input_actions: EventWriter<ModelInputAct
             ..default()
         })
         .id();
-    // TODO: needs to be referenced
+    let todo_count = 0;
+    let todo_items_left_model = commands
+        .spawn((DerivedModel(TodoActiveCount(todo_count)), Model))
+        .id();
     let todo_items_left = commands
         .spawn((
-            TextBundle::from_section("3 items left", text_styles::footer()),
+            TextBundle::from_section(format!("{} items left", todo_count), text_styles::footer()),
             markers::TodoItemsLeftView,
+            View(todo_items_left_model),
         ))
         .id();
 
@@ -453,6 +459,29 @@ fn update_input_model(
     }
 }
 
+// ModelTodoChecked -> DerivedModel<TodoActiveCount>
+fn update_count(
+    is_checked_removed: RemovedComponents<ModelTodoChecked>,
+    is_checked_changed: Query<&ModelTodoChecked, (Changed<ModelTodoChecked>, ModelOnly)>,
+    source: Query<&ModelTodoChecked, ModelOnly>,
+    mut derived: Query<&mut DerivedModel<TodoActiveCount>>,
+) {
+    if is_checked_changed.is_empty() && is_checked_removed.is_empty() {
+        return;
+    }
+
+    let mut count = 0;
+    for checked in source.iter() {
+        if !checked.0 {
+            count += 1;
+        }
+    }
+
+    for mut derived_model in derived.iter_mut() {
+        derived_model.0 .0 = count;
+    }
+}
+
 /// Whenever a model (input) is created
 /// display it by creating a view and appending it to the target parent view
 ///
@@ -593,7 +622,7 @@ fn display_todos(
         let todo_text_btn = commands
             .spawn((
                 CosmicEditUiBundle {
-                    fill_color: FillColor(Color::WHITE.into()),
+                    fill_color: FillColor(Color::WHITE),
                     style: Style {
                         width: Val::Percent(100.),
                         height: Val::Px(40.),
@@ -670,6 +699,21 @@ fn update_displayed_todos_text(
         if let Ok(todo) = todos_text.get(view.0) {
             // inner logic, user-provided
             *text = CosmicText::OneStyle(todo.0.clone());
+        }
+    }
+}
+
+// DerivedModel<TodoActiveCount> -> View
+fn update_displayed_items_left(
+    todo_count: Query<
+        &DerivedModel<TodoActiveCount>,
+        (Changed<DerivedModel<TodoActiveCount>>, ModelOnly),
+    >,
+    mut views: Query<(&mut Text, &View), (With<markers::TodoItemsLeftView>, ViewOnly)>,
+) {
+    for (mut text, view) in views.iter_mut() {
+        if let Ok(count) = todo_count.get(view.0) {
+            text.sections[0].value = format!("{} items left", count.0 .0);
         }
     }
 }
@@ -797,7 +841,7 @@ fn update_focus_todo(
                 let todo_text_btn = commands
                     .spawn((
                         CosmicEditUiBundle {
-                            fill_color: FillColor(Color::WHITE.into()),
+                            fill_color: FillColor(Color::WHITE),
                             style: Style {
                                 border: UiRect::all(Val::Px(2.0)),
                                 margin: UiRect {
@@ -872,7 +916,7 @@ fn update_focus_todo(
                 let todo_text_btn = commands
                     .spawn((
                         CosmicEditUiBundle {
-                            fill_color: FillColor(Color::WHITE.into()),
+                            fill_color: FillColor(Color::WHITE),
                             style: Style {
                                 width: Val::Percent(100.),
                                 height: Val::Px(40.),
@@ -943,7 +987,7 @@ fn update_focus_todo(
 ///
 /// Model -> View + Event<SetFocus>
 fn remove_displayed_todos(
-    mut removed: RemovedComponents<Model>,
+    mut removed: RemovedComponents<ModelTodoText>,
     views: Query<(Entity, &View), (ViewOnly, With<markers::TodoRootView>)>,
     mut commands: Commands,
     mut set_focus: EventWriter<SetFocus>,
@@ -1028,6 +1072,12 @@ struct ModelTodoChecked(bool);
 
 #[derive(Component)]
 struct ModelTodoEdit(bool);
+
+#[derive(Component)]
+struct DerivedModel<T>(T);
+
+#[derive(Debug)]
+struct TodoActiveCount(usize);
 
 /// Combined with `ModelInputText`,
 /// this is functionally equivalent to
