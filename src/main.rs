@@ -535,11 +535,20 @@ fn display_text_input(
 }
 
 /// Helper function
-fn display_checked(checked: &ModelTodoChecked) -> TextStyle {
+fn display_checked_text(checked: &ModelTodoChecked) -> String {
     if checked.0 {
-        text_styles::checkmark()
+        "\u{e92d}".to_string()
     } else {
-        text_styles::checkmark_complete()
+        "\u{e836}".to_string()
+    }
+}
+
+/// Helper function
+fn display_checked_style(checked: &ModelTodoChecked, font: Handle<Font>) -> TextStyle {
+    if checked.0 {
+        text_styles::checkmark_completed(font)
+    } else {
+        text_styles::checkmark(font)
     }
 }
 
@@ -555,7 +564,9 @@ fn display_todos(
     todo_list_q: Query<Entity, With<markers::TodoList>>,
     mut commands: Commands,
     windows: Query<&Window, With<PrimaryWindow>>,
+    asset_server: Res<AssetServer>,
 ) {
+    let icon_font = asset_server.load("fonts/MaterialIcons-Regular.ttf");
     // an outer reference
     let todo_list = todo_list_q.single();
     // some loop
@@ -604,11 +615,10 @@ fn display_todos(
                 TextBundle {
                     #[cfg(feature = "debug")]
                     background_color: Color::FUCHSIA.into(),
-                    text: Text::from_sections([
-                        TextSection::new("[", text_styles::todo()),
-                        TextSection::new("x", display_checked(checked)),
-                        TextSection::new("]", text_styles::todo()),
-                    ]),
+                    text: Text::from_sections([TextSection::new(
+                        display_checked_text(checked),
+                        display_checked_style(checked, icon_font.clone()),
+                    )]),
                     ..default()
                 },
                 View(model_entity),
@@ -767,12 +777,15 @@ fn update_displayed_todos_text_checked(
 fn update_displayed_todos_checkmark_checked(
     model_todo_checked: Query<&ModelTodoChecked, (Changed<ModelTodoChecked>, ModelOnly)>,
     mut views: Query<(&mut Text, &View), (ViewOnly, With<markers::TodoCheckmarkView>)>,
+    asset_server: Res<AssetServer>,
 ) {
+    let icon_font = asset_server.load("fonts/MaterialIcons-Regular.ttf");
     // outer loop, library-provided
     for (mut text, view) in views.iter_mut() {
         if let Ok(checked) = model_todo_checked.get(view.0) {
             // inner logic, user-provided
-            text.sections[1].style = display_checked(checked);
+            text.sections[0].value = display_checked_text(checked);
+            text.sections[0].style = display_checked_style(checked, icon_font.clone());
         }
     }
 }
@@ -826,7 +839,9 @@ fn update_focus_todo(
     mut set_focus: EventWriter<SetFocus>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut commands: Commands,
+    asset_server: Res<AssetServer>,
 ) {
+    let icon_font = asset_server.load("fonts/MaterialIcons-Regular.ttf");
     let models_to_views = root_views
         .iter()
         .map(|(entity, view)| (view.0, entity))
@@ -895,11 +910,10 @@ fn update_focus_todo(
                         TextBundle {
                             #[cfg(feature = "debug")]
                             background_color: Color::FUCHSIA.into(),
-                            text: Text::from_sections([
-                                TextSection::new("[", text_styles::todo()),
-                                TextSection::new("x", display_checked(checked)),
-                                TextSection::new("]", text_styles::todo()),
-                            ]),
+                            text: Text::from_sections([TextSection::new(
+                                display_checked_text(checked),
+                                display_checked_style(checked, icon_font.clone()),
+                            )]),
                             ..default()
                         },
                         View(model_entity),
@@ -1265,7 +1279,10 @@ mod colors {
 mod text_styles {
     #![allow(unused)]
 
-    use bevy::prelude::{default, Color, TextStyle};
+    use bevy::{
+        prelude::{default, Color, Handle, TextStyle},
+        text::Font,
+    };
 
     use crate::colors;
 
@@ -1285,19 +1302,19 @@ mod text_styles {
         }
     }
 
-    pub fn checkmark() -> TextStyle {
+    pub fn checkmark(font: Handle<Font>) -> TextStyle {
         TextStyle {
-            font_size: 24.0 * 1.2,
-            color: Color::LIME_GREEN,
-            ..default()
+            font_size: 24.0 * 1.6,
+            color: colors::body_color().with_a(0.3),
+            font,
         }
     }
 
-    pub fn checkmark_complete() -> TextStyle {
+    pub fn checkmark_completed(font: Handle<Font>) -> TextStyle {
         TextStyle {
-            font_size: 24.0 * 1.2,
-            color: Color::NONE,
-            ..default()
+            font_size: 24.0 * 1.6,
+            color: Color::LIME_GREEN.with_a(0.5),
+            font,
         }
     }
 
