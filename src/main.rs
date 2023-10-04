@@ -566,7 +566,7 @@ fn display_todos(
     windows: Query<&Window, With<PrimaryWindow>>,
     asset_server: Res<AssetServer>,
 ) {
-    let icon_font = asset_server.load("fonts/MaterialIcons-Regular.ttf");
+    let icon_font = asset_server.load("fonts/MaterialIcons-Regular-subset.ttf");
     // an outer reference
     let todo_list = todo_list_q.single();
     // some loop
@@ -779,7 +779,7 @@ fn update_displayed_todos_checkmark_checked(
     mut views: Query<(&mut Text, &View), (ViewOnly, With<markers::TodoCheckmarkView>)>,
     asset_server: Res<AssetServer>,
 ) {
-    let icon_font = asset_server.load("fonts/MaterialIcons-Regular.ttf");
+    let icon_font = asset_server.load("fonts/MaterialIcons-Regular-subset.ttf");
     // outer loop, library-provided
     for (mut text, view) in views.iter_mut() {
         if let Ok(checked) = model_todo_checked.get(view.0) {
@@ -841,7 +841,7 @@ fn update_focus_todo(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
 ) {
-    let icon_font = asset_server.load("fonts/MaterialIcons-Regular.ttf");
+    let icon_font = asset_server.load("fonts/MaterialIcons-Regular-subset.ttf");
     let models_to_views = root_views
         .iter()
         .map(|(entity, view)| (view.0, entity))
