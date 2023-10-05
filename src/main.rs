@@ -498,6 +498,9 @@ fn display_text_input(
         let primary_window = windows.single();
         let text_color = text_styles::todo().color;
         let attrs = AttrsOwned::new(Attrs::new().color(bevy_color_to_cosmic(text_color)));
+        let placeholder_attrs = AttrsOwned::new(
+            Attrs::new().color(bevy_color_to_cosmic(text_styles::placeholder().color)),
+        );
         let todo_input_btn = commands
             .spawn((
                 CosmicEditUiBundle {
@@ -519,6 +522,10 @@ fn display_text_input(
                     },
                     text_setter: CosmicText::OneStyle(input.0.clone()),
                     text_position: CosmicTextPosition::Left { padding: 15 },
+                    placeholder_attrs: PlaceholderAttrs(placeholder_attrs.clone()),
+                    placeholder_setter: PlaceholderText(CosmicText::OneStyle(
+                        "What needs to be done?".to_string(),
+                    )),
                     mode: CosmicMode::InfiniteLine,
                     ..default()
                 },
@@ -1298,6 +1305,14 @@ mod text_styles {
         TextStyle {
             font_size: 24.0,
             color: colors::body_color(),
+            ..default()
+        }
+    }
+
+    pub fn placeholder() -> TextStyle {
+        TextStyle {
+            font_size: 24.0,
+            color: colors::todoapp_inputplaceholder_color(),
             ..default()
         }
     }
